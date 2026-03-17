@@ -251,8 +251,8 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
         away_w, away_t,
     )
 
-    # Bizonytalan tipp → nem küldjük
-    if winner == "uncertain":
+    # Csak Erős tippeket küldünk
+    if confidence != "🟢 Erős tipp":
         return None, None
 
     # Szorzó meghatározása a tippelt oldalhoz
