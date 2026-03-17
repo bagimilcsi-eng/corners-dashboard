@@ -415,9 +415,6 @@ async def scan_and_send(context):
 
 
 async def check_results(context):
-    if not CORNERS_CHAT_ID:
-        return
-
     tips = load_corner_tips()
     now_ts = int(datetime.utcnow().timestamp())
 
@@ -437,8 +434,12 @@ async def check_results(context):
             result = "win" if actual < t["line"] else "loss"
 
         update_corner_result(t["event_id"], result, actual)
-        msg = format_result_msg(t, actual, result)
+        logger.info(f"Eredmény frissítve: {t['event_id']} → {result} (szögletek: {actual})")
 
+        if not CORNERS_CHAT_ID:
+            continue
+
+        msg = format_result_msg(t, actual, result)
         try:
             await context.bot.send_message(
                 chat_id=CORNERS_CHAT_ID,
