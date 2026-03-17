@@ -28,6 +28,13 @@ function StatCard({
   );
 }
 
+function getStrength(expected: number): { icon: string; label: string; color: string } {
+  const margin = Math.abs(expected - 9.5);
+  if (margin >= 2.5) return { icon: "⚡⚡⚡", label: "Nagyon erős", color: "text-red-600" };
+  if (margin >= 1.5) return { icon: "⚡⚡", label: "Erős", color: "text-orange-500" };
+  return { icon: "⚡", label: "Mérsékelt", color: "text-yellow-500" };
+}
+
 function TipRow({ tip }: { tip: CornerTip }) {
   const startDt = new Date(tip.start_timestamp * 1000);
   const timeStr = startDt.toLocaleTimeString("hu-HU", {
@@ -98,6 +105,16 @@ function TipRow({ tip }: { tip: CornerTip }) {
             Valós: <span className="font-semibold">{tip.actual_corners}</span>
           </span>
         )}
+      </div>
+      <div className="text-xs">
+        {(() => {
+          const s = getStrength(Number(tip.expected_corners));
+          return (
+            <span className={`font-semibold ${s.color}`}>
+              {s.icon} {s.label}
+            </span>
+          );
+        })()}
       </div>
     </div>
   );

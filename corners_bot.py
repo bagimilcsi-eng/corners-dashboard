@@ -29,6 +29,17 @@ UNDER_THRESHOLD = 8.5
 RESULT_DELAY_MIN = 110
 MAX_FIXTURES_PER_SCAN = 40
 
+
+def get_strength(expected: float) -> tuple[str, str]:
+    """Visszaadja az erősségi fokozatot (ikon, szöveg) a várható szögletszám alapján."""
+    margin = abs(expected - CORNER_LINE)
+    if margin >= 2.5:
+        return "⚡⚡⚡", "Nagyon erős"
+    elif margin >= 1.5:
+        return "⚡⚡", "Erős"
+    else:
+        return "⚡", "Mérsékelt"
+
 _corner_cache: dict = {}
 
 
@@ -280,6 +291,7 @@ def format_tip_msg(tip: dict) -> str:
     time_str = start_dt.strftime("%H:%M")
     tip_icon = "⬆️" if tip["tip"] == "over" else "⬇️"
     tip_label = "OVER" if tip["tip"] == "over" else "UNDER"
+    strength_icon, strength_label = get_strength(tip["expected_corners"])
     return (
         f"⚽ *Szöglet Tipp*\n\n"
         f"🏆 {tip['league']}\n"
@@ -287,7 +299,8 @@ def format_tip_msg(tip: dict) -> str:
         f"🆚 *{tip['home']}* vs *{tip['away']}*\n"
         f"📊 Várható szögletek: *{tip['expected_corners']}*\n"
         f"   ┣ Hazai: {tip['home_avg']} | Vendég: {tip['away_avg']}\n"
-        f"{tip_icon} Tipp: *{tip_label} {tip['line']} szöglet*"
+        f"{tip_icon} Tipp: *{tip_label} {tip['line']} szöglet*\n"
+        f"{strength_icon} Erősség: *{strength_label}*"
     )
 
 
