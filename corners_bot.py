@@ -20,8 +20,11 @@ CORNERS_BOT_TOKEN = os.environ["CORNERS_BOT_TOKEN"]
 CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
-FOOTBALL_API_BASE = "https://v3.football.api-sports.io"
-FOOTBALL_API_HEADERS = {"x-apisports-key": os.environ.get("SPORTS_API_KEY", "")}
+FOOTBALL_API_BASE = "https://api-football-v1.p.rapidapi.com/v3"
+FOOTBALL_API_HEADERS = {
+    "x-rapidapi-key": os.environ.get("SPORTS_API_KEY", ""),
+    "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
+}
 
 CORNER_LINE = 9.5
 OVER_THRESHOLD = 10.5
