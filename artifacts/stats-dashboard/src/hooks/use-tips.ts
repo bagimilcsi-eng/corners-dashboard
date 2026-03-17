@@ -30,7 +30,7 @@ export function useTipStats() {
   return useQuery<TipStats>({
     queryKey: ["tip-stats"],
     queryFn: async () => {
-      const res = await fetch("/api-server/api/tips/stats");
+      const res = await fetch("/api/tips/stats");
       if (!res.ok) {
         throw new Error("Failed to fetch tip stats");
       }
