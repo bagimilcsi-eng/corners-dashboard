@@ -26,17 +26,19 @@ export interface TipStats {
   recentTips: Tip[];
 }
 
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || "";
+
 export function useTipStats() {
   return useQuery<TipStats>({
     queryKey: ["tip-stats"],
     queryFn: async () => {
-      const res = await fetch("/api/tips/stats");
+      const res = await fetch(`${API_BASE}/api/tips/stats`);
       if (!res.ok) {
         throw new Error("Failed to fetch tip stats");
       }
       return res.json();
     },
-    refetchInterval: 15000, // Poll every 15 seconds
-    staleTime: 0,           // Mindig friss adatot kér
+    refetchInterval: 15000,
+    staleTime: 0,
   });
 }
