@@ -34,6 +34,7 @@ RESULT_DELAY_MIN = 110
 MAX_FIXTURES_PER_SCAN = 30
 MIN_RECENT_MATCHES = 3
 API_DELAY_SEC = 0.5
+MIN_CORNER_ODDS = 1.60
 
 _corner_cache: dict = {}
 
@@ -70,10 +71,12 @@ def init_db():
         expected_corners REAL NOT NULL,
         home_avg         REAL,
         away_avg         REAL,
+        odds             REAL DEFAULT NULL,
         sent_at          BIGINT NOT NULL,
         result           TEXT DEFAULT NULL,
         actual_corners   INTEGER DEFAULT NULL
     );
+    ALTER TABLE corner_tips ADD COLUMN IF NOT EXISTS odds REAL DEFAULT NULL;
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -97,10 +100,10 @@ def save_corner_tip(tip: dict):
     sql = """
     INSERT INTO corner_tips
         (event_id, home, away, league, league_id, start_timestamp, tip, line,
-         expected_corners, home_avg, away_avg, sent_at)
+         expected_corners, home_avg, away_avg, odds, sent_at)
     VALUES (%(event_id)s, %(home)s, %(away)s, %(league)s, %(league_id)s,
             %(start_timestamp)s, %(tip)s, %(line)s, %(expected_corners)s,
-            %(home_avg)s, %(away_avg)s, %(sent_at)s)
+            %(home_avg)s, %(away_avg)s, %(odds)s, %(sent_at)s)
     ON CONFLICT (event_id) DO NOTHING;
     """
     try:
@@ -127,6 +130,16 @@ def update_corner_result(event_id: int, result: str, actual_corners: int):
 # ─────────────────────────────────────────────
 #  SOFASCORE API
 # ─────────────────────────────────────────────
+
+def fractional_to_decimal(fractional: str) -> float | None:
+    try:
+        if "/" in fractional:
+            num, den = fractional.split("/")
+            return round(int(num) / int(den) + 1, 2)
+        return round(float(fractional), 2)
+    except Exception:
+        return None
+
 
 def sofa_get(url: str) -> dict:
     try:
@@ -213,6 +226,20 @@ def get_team_corner_avg(team_id: int, is_home: bool) -> float | None:
     return avg
 
 
+def fetch_corner_odds(event_id: int, tip: str) -> float | None:
+    data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}/odds/1/all")
+    markets = data.get("markets", [])
+    for market in markets:
+        if "corner" in market.get("marketName", "").lower():
+            for choice in market.get("choices", []):
+                name = choice.get("name", "").lower()
+                if (tip == "over" and name == "over") or (tip == "under" and name == "under"):
+                    odds = fractional_to_decimal(choice.get("fractionalValue", ""))
+                    if odds:
+                        return odds
+    return None
+
+
 def fetch_event_result(event_id: int):
     data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}")
     event = data.get("event", {})
@@ -270,6 +297,13 @@ def analyze_fixture(event: dict) -> dict | None:
         logger.info(f"Nem elég erős jel ({expected}): {home_name} vs {away_name}")
         return None
 
+    odds = fetch_corner_odds(event_id, tip)
+    if odds is None:
+        logger.info(f"Nincs szöglet odds: {home_name} vs {away_name}")
+    elif odds < MIN_CORNER_ODDS:
+        logger.info(f"Szorzó túl alacsony ({odds}): {home_name} vs {away_name}")
+        return None
+
     full_league = f"{category_name} – {league_name}" if category_name else league_name
 
     return {
@@ -284,6 +318,7 @@ def analyze_fixture(event: dict) -> dict | None:
         "expected_corners": expected,
         "home_avg": round(home_avg, 1),
         "away_avg": round(away_avg, 1),
+        "odds": odds,
         "sent_at": int(datetime.utcnow().timestamp()),
         "result": None,
     }
@@ -300,6 +335,8 @@ def format_tip_msg(tip: dict) -> str:
     tip_icon = "⬆️" if tip["tip"] == "over" else "⬇️"
     tip_label = "OVER" if tip["tip"] == "over" else "UNDER"
     strength_icon, strength_label = get_strength(tip["expected_corners"])
+    odds = tip.get("odds")
+    odds_str = f"\n💰 Szorzó: *{odds}*" if odds else ""
     return (
         f"⚽ *Szöglet Tipp*\n\n"
         f"🏆 {tip['league']}\n"
@@ -309,6 +346,7 @@ def format_tip_msg(tip: dict) -> str:
         f"   ┣ Hazai: {tip['home_avg']} | Vendég: {tip['away_avg']}\n"
         f"{tip_icon} Tipp: *{tip_label} {tip['line']} szöglet*\n"
         f"{strength_icon} Erősség: *{strength_label}*"
+        f"{odds_str}"
     )
 
 
