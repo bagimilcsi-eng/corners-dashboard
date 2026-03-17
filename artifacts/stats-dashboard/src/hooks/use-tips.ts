@@ -36,7 +36,7 @@ export function useTipStats() {
       }
       return res.json();
     },
-    refetchInterval: 30000, // Poll every 30 seconds
-    staleTime: 10000,
+    refetchInterval: 15000, // Poll every 15 seconds
+    staleTime: 0,           // Mindig friss adatot kér
   });
 }
