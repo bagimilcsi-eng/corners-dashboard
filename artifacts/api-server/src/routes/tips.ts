@@ -3,7 +3,32 @@ import { Pool } from "pg";
 
 const router = Router();
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.DATABASE_URL?.includes("localhost")
+    ? false
+    : { rejectUnauthorized: false },
+});
+
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS tips (
+      event_id BIGINT PRIMARY KEY,
+      home VARCHAR(255) NOT NULL,
+      away VARCHAR(255) NOT NULL,
+      league VARCHAR(255) NOT NULL,
+      predicted VARCHAR(10) NOT NULL,
+      predicted_name VARCHAR(255) NOT NULL,
+      odds NUMERIC(6,2),
+      start_timestamp BIGINT NOT NULL,
+      sent_at BIGINT NOT NULL,
+      result VARCHAR(10) DEFAULT NULL,
+      actual_winner VARCHAR(10) DEFAULT NULL
+    )
+  `);
+}
+
+initDb().catch(console.error);
 
 interface Tip {
   event_id: number;
@@ -25,7 +50,8 @@ async function loadTips(): Promise<Tip[]> {
       "SELECT * FROM tips ORDER BY sent_at DESC"
     );
     return rows;
-  } catch {
+  } catch (err) {
+    console.error("DB loadTips error:", err);
     return [];
   }
 }
