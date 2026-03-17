@@ -187,32 +187,56 @@ def form_bar(wins: int, total: int) -> str:
     return "●" * filled + "○" * (5 - filled)
 
 
+MIN_FORM_MATCHES = 5    # Minimum forma meccs a megbízható elemzéshez
+STRONG_THRESHOLD = 20   # Erős tipp küszöb (volt 15)
+
+
 def calculate_tip(
     h2h_home_wins: int, h2h_total: int,
     home_form_wins: int, home_form_total: int,
     away_form_wins: int, away_form_total: int,
 ) -> tuple[str, str, float]:
-    """Tipp kiszámítása pontozással. Visszaad: (winner, bizalom, score)."""
+    """
+    Tipp kiszámítása pontozással. Visszaad: (winner, bizalom, score).
+
+    Megbízhatósági feltételek:
+    - Legalább MIN_FORM_MATCHES forma meccs mindkét játékoshoz
+    - Ha van H2H adat (≥3 meccs) ÉS forma adat, a kettőnek egyező irányt kell mutatnia
+    - Pontszám legalább ±STRONG_THRESHOLD az Erős tipphez
+    """
     score = 0.0
 
-    # H2H súly (max ±40 pont, min 3 meccs kell)
-    if h2h_total >= 3:
-        h2h_rate = (h2h_home_wins / h2h_total) - 0.5
-        score += h2h_rate * 40
-
-    # Forma súly (max ±30 pont)
+    # Forma arányok
     home_rate = (home_form_wins / home_form_total) if home_form_total > 0 else 0.5
     away_rate = (away_form_wins / away_form_total) if away_form_total > 0 else 0.5
-    score += (home_rate - away_rate) * 30
 
-    if score >= 15:
+    # Minimum forma adat ellenőrzés
+    if home_form_total < MIN_FORM_MATCHES or away_form_total < MIN_FORM_MATCHES:
+        return "uncertain", "🔴 Kevés forma adat", score
+
+    # H2H komponens
+    h2h_score = 0.0
+    has_h2h = h2h_total >= 3
+    if has_h2h:
+        h2h_rate = (h2h_home_wins / h2h_total) - 0.5
+        h2h_score = h2h_rate * 40
+
+    # Forma komponens
+    form_score = (home_rate - away_rate) * 30
+
+    # H2H és forma irány egyezés (ha mindkettő rendelkezésre áll)
+    if has_h2h:
+        h2h_favors_home = h2h_score > 0
+        form_favors_home = form_score > 0
+        if h2h_favors_home != form_favors_home:
+            return "uncertain", "🔴 Ellentmondó jelek", score
+
+    score = h2h_score + form_score
+
+    if score >= STRONG_THRESHOLD:
         return "home", "🟢 Erős tipp", score
-    elif score >= 6:
-        return "home", "🟡 Közepes tipp", score
-    elif score <= -15:
+    elif score <= -STRONG_THRESHOLD:
         return "away", "🟢 Erős tipp", score
-    elif score <= -6:
-        return "away", "🟡 Közepes tipp", score
     else:
         return "uncertain", "🔴 Bizonytalan", score
 
