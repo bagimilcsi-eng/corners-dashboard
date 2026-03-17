@@ -52,15 +52,34 @@ interface Tip {
   actual_winner: "home" | "away" | null;
 }
 
+async function loadTipsFromKV(): Promise<Tip[]> {
+  const kvUrl = process.env.REPLIT_DB_URL;
+  if (!kvUrl) return [];
+  try {
+    const resp = await fetch(`${kvUrl}/tips_data`);
+    if (!resp.ok) return [];
+    const text = await resp.text();
+    if (!text) return [];
+    const parsed = JSON.parse(decodeURIComponent(text));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err: any) {
+    console.error("KV loadTips error:", err.message);
+    return [];
+  }
+}
+
 async function loadTips(): Promise<Tip[]> {
   try {
     const { rows } = await pool.query<Tip>(
       "SELECT * FROM tips ORDER BY sent_at DESC"
     );
-    return rows;
+    if (rows.length > 0) return rows;
+    // Ha a prod DB üres, a KV store-ból olvas (dev bot írja)
+    console.log("DB empty, falling back to KV store...");
+    return await loadTipsFromKV();
   } catch (err: any) {
     console.error("DB loadTips error:", err.message);
-    return [];
+    return await loadTipsFromKV();
   }
 }
 

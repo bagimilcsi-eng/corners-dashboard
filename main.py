@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 PROD_API_URL = os.environ.get("PROD_API_URL", "").rstrip("/")
+REPLIT_DB_URL = os.environ.get("REPLIT_DB_URL", "")
 
 SOFASCORE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -287,6 +288,7 @@ def save_tip_record(record: dict):
                 ))
         conn.close()
         sync_tip_to_prod(record)
+        sync_all_tips_to_kv()
     except Exception as e:
         logger.error(f"DB save_tip_record hiba: {e}")
 
@@ -326,8 +328,29 @@ def update_tip_result(event_id: int, result: str, actual_winner: str):
                 """, (result, actual_winner, event_id))
         conn.close()
         sync_result_to_prod(event_id, result, actual_winner)
+        sync_all_tips_to_kv()
     except Exception as e:
         logger.error(f"DB update_tip_result hiba: {e}")
+
+
+def sync_all_tips_to_kv():
+    """Elmenti az összes tippet a Replit KV store-ba (dev+production között megosztott)."""
+    if not REPLIT_DB_URL:
+        return
+    try:
+        tips = load_tips()
+        # Decimalt float-ra konvertáljuk JSON-hoz
+        serializable = []
+        for t in tips:
+            row = dict(t)
+            if row.get("odds") is not None:
+                row["odds"] = float(row["odds"])
+            serializable.append(row)
+        payload = json.dumps(serializable, default=str)
+        requests.post(REPLIT_DB_URL, data={"tips_data": payload}, timeout=6)
+        logger.debug(f"KV sync kész: {len(serializable)} tipp")
+    except Exception as e:
+        logger.warning(f"KV sync hiba: {e}")
 
 
 def sync_tip_to_prod(record: dict):
@@ -1125,6 +1148,7 @@ def backfill_prod_api():
 
 def main():
     logger.info("Sports Bot indul...")
+    sync_all_tips_to_kv()
     backfill_prod_api()
     app = (
         Application.builder()
