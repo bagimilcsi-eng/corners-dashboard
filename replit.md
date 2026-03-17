@@ -4,34 +4,46 @@
 
 pnpm workspace monorepo using TypeScript + a Python Telegram sports bot.
 
-## Sports Telegram Bot
+## Sports Telegram Bot (Table Tennis)
 
-A Python bot that fetches live football/soccer data from [api-sports.io](https://api-sports.io) and sends it to Telegram.
+A Python bot that fetches Setka Cup and Czech Liga Cup (asztalitenisz) match data from SofaScore and sends betting tips to Telegram.
 
 - **Entry point**: `main.py`
 - **Workflow**: "Sports Telegram Bot" — runs `python main.py`
-- **Required secrets**: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SPORTS_API_KEY`
+- **Required secrets**: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+- **Tip storage**: `tips_history.json` in workspace root (tracks all sent tips and results)
 
 ### Bot Commands
 
-- `/start` or `/help` — Show available commands
-- `/live` — Currently live matches
-- `/today` — Today's scheduled matches
-- `/standings` — Premier League top 10 standings (league 39, season 2024)
-- `/scorers` — Premier League top 5 scorers
+- `/tt_tippek` — Fetch and send table tennis tips for next 8 hours
+- `/tt_statisztika` — Show bot statistics (win rate, ROI, league breakdown, last 5 tips)
 
-### Sports API
+### Tip Filtering Logic
 
-Uses [api-football.com](https://www.api-football.com) v3 (`https://v3.football.api-sports.io`).
-Default league: Premier League (ID: 39), season: 2024.
-Change `league_id` and `season` params in `main.py` to switch leagues.
+- Source: SofaScore public API (no auth, browser User-Agent headers)
+- Leagues: Setka Cup, Czech Liga Cup
+- Only "Erős tipp" (score ≥ ±15) = `STRONG_THRESHOLD=15`
+- Minimum 5 form matches: `MIN_FORM_MATCHES=5`
+- H2H direction must agree with form direction
+- Odds ≥ 1.50: `MIN_ODDS=1.50`
+- Auto-startup: on bot launch sends tips for next 8 hours (max 20)
+- Auto-resolve: fetches match results 90 min after match start
 
 ### Key packages (Python)
 
 - `python-telegram-bot` — Telegram bot framework
-- `requests` — HTTP client for Sports API calls
-- `schedule` — Optional scheduled task support
-- `python-dotenv` — Local `.env` support
+- `requests` — HTTP client for SofaScore API calls
+
+## Web Statistics Dashboard
+
+React + Vite dashboard at preview path `/` showing tip history and statistics.
+
+- **Artifact**: `artifacts/stats-dashboard` 
+- **Workflow**: "artifacts/stats-dashboard: web"
+- **API**: served by api-server at `/api-server/api/tips/stats` and `/api-server/api/tips`
+- **Data**: reads `tips_history.json` from workspace root
+- **Features**: stats cards (total, win rate, ROI, wins/losses/pending), league breakdown, recent tips table with result badges
+- **Auto-refresh**: every 30 seconds
 
 ## Stack
 

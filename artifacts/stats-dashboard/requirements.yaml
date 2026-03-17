@@ -1,0 +1,10 @@
+packages:
+  "framer-motion": "For smooth layout animations and staggering card entrances"
+  "recharts": "For any potential chart visualizations of the stats"
+  "date-fns": "For formatting timestamps into human-readable Hungarian dates"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility to merge tailwind classes safely"
+
+notes:
+  - The API endpoints are located at `/api-server/api/tips` and `/api-server/api/tips/stats`
+  - Polling interval is set to 30 seconds for live updates

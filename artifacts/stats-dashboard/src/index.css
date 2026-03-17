@@ -1,0 +1,86 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: 'Inter', sans-serif;
+  --font-display: 'Rajdhani', sans-serif;
+
+  /* Dark mode professional sports analytics theme */
+  --color-background: hsl(224 35% 8%);
+  --color-foreground: hsl(210 40% 98%);
+  
+  --color-card: hsl(224 35% 11%);
+  --color-card-foreground: hsl(210 40% 98%);
+  --color-card-border: hsl(224 30% 18%);
+  
+  --color-popover: hsl(224 35% 11%);
+  --color-popover-foreground: hsl(210 40% 98%);
+  --color-popover-border: hsl(224 30% 18%);
+  
+  --color-primary: hsl(217 91% 60%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  
+  --color-secondary: hsl(224 30% 16%);
+  --color-secondary-foreground: hsl(210 40% 98%);
+  
+  --color-muted: hsl(224 30% 16%);
+  --color-muted-foreground: hsl(215 20% 65%);
+  
+  --color-accent: hsl(217 91% 60%);
+  --color-accent-foreground: hsl(0 0% 100%);
+  
+  --color-destructive: hsl(348 83% 53%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+
+  --color-success: hsl(142 71% 45%);
+  --color-success-foreground: hsl(0 0% 100%);
+
+  --color-warning: hsl(38 92% 50%);
+  --color-warning-foreground: hsl(224 35% 8%);
+  
+  --color-border: hsl(224 30% 18%);
+  --color-input: hsl(224 30% 18%);
+  --color-ring: hsl(217 91% 60%);
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+}
+
+:root {
+  --background: 224 35% 8%;
+  --foreground: 210 40% 98%;
+  --card: 224 35% 11%;
+  --card-foreground: 210 40% 98%;
+  --border: 224 30% 18%;
+  --primary: 217 91% 60%;
+  --success: 142 71% 45%;
+  --danger: 348 83% 53%;
+  --warning: 38 92% 50%;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-foreground font-sans antialiased selection:bg-primary/30 selection:text-white;
+    background-image: 
+      radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.04), transparent 25%),
+      radial-gradient(circle at 85% 30%, rgba(16, 185, 129, 0.03), transparent 25%);
+    background-attachment: fixed;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer utilities {
+  .glass-card {
+    @apply bg-card/80 backdrop-blur-md border border-card-border shadow-xl shadow-black/20;
+  }
+  
+  .text-glow {
+    text-shadow: 0 0 20px currentColor;
+  }
+}

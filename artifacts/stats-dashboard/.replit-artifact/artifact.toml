@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Tipp Statisztikák"
+version = "1.0.0"
+id = "artifacts/stats-dashboard"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+localPort = 22884
+name = "web"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/stats-dashboard run dev"
+
+[services.env]
+PORT = "22884"
+BASE_PATH = "/"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/stats-dashboard", "run", "build"]
+publicDir = "artifacts/stats-dashboard/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
