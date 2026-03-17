@@ -13,8 +13,7 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.constants import ParseMode
 
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,7 @@ REPLIT_DB_URL = os.environ.get("REPLIT_DB_URL", "")
 
 SOFASCORE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                  "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept": "application/json",
     "Referer": "https://www.sofascore.com/",
 }
@@ -42,6 +41,7 @@ ALLOWED_KEYWORDS = ["setka", "czech"]
 # ─────────────────────────────────────────────
 #  SOFASCORE – ASZTALITENISZ
 # ─────────────────────────────────────────────
+
 
 def sofascore_fetch_events(target_date: str) -> list:
     """Asztalitenisz meccsek lekérése SofaScore-ból adott dátumra."""
@@ -167,8 +167,9 @@ def format_event_line(event: dict) -> str:
 # ─────────────────────────────────────────────
 
 
-
-def get_player_recent_form(player_name: str, all_events: list, last: int = 10) -> tuple[int, int]:
+def get_player_recent_form(
+    player_name: str, all_events: list, last: int = 10
+) -> tuple[int, int]:
     """Játékos legutóbbi formájának kiszámítása a mai adatokból."""
     wins = 0
     total = 0
@@ -177,7 +178,10 @@ def get_player_recent_form(player_name: str, all_events: list, last: int = 10) -
             continue
         home = e.get("homeTeam", {}).get("name", "")
         away = e.get("awayTeam", {}).get("name", "")
-        if player_name.lower() not in home.lower() and player_name.lower() not in away.lower():
+        if (
+            player_name.lower() not in home.lower()
+            and player_name.lower() not in away.lower()
+        ):
             continue
         hs = e.get("homeScore", {}).get("current") or 0
         as_ = e.get("awayScore", {}).get("current") or 0
@@ -198,14 +202,17 @@ def form_bar(wins: int, total: int) -> str:
     return "●" * filled + "○" * (5 - filled)
 
 
-MIN_FORM_MATCHES = 5    # Minimum forma meccs a megbízható elemzéshez
-STRONG_THRESHOLD = 15   # Erős tipp küszöb
+MIN_FORM_MATCHES = 5  # Minimum forma meccs a megbízható elemzéshez
+STRONG_THRESHOLD = 15  # Erős tipp küszöb
 
 
 def calculate_tip(
-    h2h_home_wins: int, h2h_total: int,
-    home_form_wins: int, home_form_total: int,
-    away_form_wins: int, away_form_total: int,
+    h2h_home_wins: int,
+    h2h_total: int,
+    home_form_wins: int,
+    home_form_total: int,
+    away_form_wins: int,
+    away_form_total: int,
 ) -> tuple[str, str, float]:
     """
     Tipp kiszámítása pontozással. Visszaad: (winner, bizalom, score).
@@ -252,10 +259,11 @@ def calculate_tip(
         return "uncertain", "🔴 Bizonytalan", score
 
 
-MIN_ODDS = 1.50       # Csak ennél magasabb szorzójú tippeket mutatjuk
+MIN_ODDS = 1.50  # Csak ennél magasabb szorzójú tippeket mutatjuk
 # ─────────────────────────────────────────────
 #  ADATBÁZIS – TIPP ELŐZMÉNYEK
 # ─────────────────────────────────────────────
+
 
 def get_db_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
@@ -280,18 +288,28 @@ def save_tip_record(record: dict):
         conn = get_db_conn()
         with conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO tips
                         (event_id, home, away, league, predicted, predicted_name,
                          odds, start_timestamp, sent_at, result, actual_winner)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (event_id) DO NOTHING
-                """, (
-                    record["event_id"], record["home"], record["away"],
-                    record["league"], record["predicted"], record["predicted_name"],
-                    record.get("odds"), record["start_timestamp"], record["sent_at"],
-                    record.get("result"), record.get("actual_winner")
-                ))
+                """,
+                    (
+                        record["event_id"],
+                        record["home"],
+                        record["away"],
+                        record["league"],
+                        record["predicted"],
+                        record["predicted_name"],
+                        record.get("odds"),
+                        record["start_timestamp"],
+                        record["sent_at"],
+                        record.get("result"),
+                        record.get("actual_winner"),
+                    ),
+                )
         conn.close()
         sync_tip_to_prod(record)
         sync_all_tips_to_kv()
@@ -306,7 +324,8 @@ def fetch_match_result(event_id: int) -> str | None:
     try:
         r = requests.get(
             f"https://www.sofascore.com/api/v1/event/{event_id}",
-            headers=SOFASCORE_HEADERS, timeout=8
+            headers=SOFASCORE_HEADERS,
+            timeout=8,
         )
         if r.status_code != 200:
             return None
@@ -329,9 +348,12 @@ def update_tip_result(event_id: int, result: str, actual_winner: str):
         conn = get_db_conn()
         with conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     UPDATE tips SET result=%s, actual_winner=%s WHERE event_id=%s
-                """, (result, actual_winner, event_id))
+                """,
+                    (result, actual_winner, event_id),
+                )
         conn.close()
         sync_result_to_prod(event_id, result, actual_winner)
         sync_all_tips_to_kv()
@@ -377,7 +399,7 @@ def sync_tip_to_prod(record: dict):
                 "start_timestamp": record["start_timestamp"],
                 "sent_at": record["sent_at"],
             },
-            timeout=6
+            timeout=6,
         )
     except Exception as e:
         logger.warning(f"Prod API tipp sync hiba: {e}")
@@ -391,7 +413,7 @@ def sync_result_to_prod(event_id: int, result: str, actual_winner: str):
         requests.patch(
             f"{PROD_API_URL}/api/tips/{event_id}",
             json={"result": result, "actual_winner": actual_winner},
-            timeout=6
+            timeout=6,
         )
     except Exception as e:
         logger.warning(f"Prod API eredmény sync hiba: {e}")
@@ -414,7 +436,9 @@ def resolve_pending_tips(tips: list) -> list:
     return tips
 
 
-def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float | None, dict | None]:
+def build_tip_message(
+    event: dict, all_events: list
+) -> tuple[str | None, float | None, dict | None]:
     """
     Tipp üzenet összeállítása egy meccshez.
     Visszaad: (üzenet vagy None, tippelt szorzó vagy None, tipp-meta dict vagy None)
@@ -440,9 +464,12 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
     away_w, away_t = get_player_recent_form(away, all_events)
 
     winner, confidence, score = calculate_tip(
-        h2h_home_wins, h2h_total,
-        home_w, home_t,
-        away_w, away_t,
+        h2h_home_wins,
+        h2h_total,
+        home_w,
+        home_t,
+        away_w,
+        away_t,
     )
 
     # Csak Erős tippeket küldünk
@@ -483,26 +510,34 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
     else:
         tip_str = f"🏓 *Tipp: {away}* győz"
 
-    h2h_str = f"{h2h_home_wins}–{h2h_total - h2h_home_wins}" if h2h_total >= 2 else "nincs adat"
+    h2h_str = (
+        f"{h2h_home_wins}–{h2h_total - h2h_home_wins}"
+        if h2h_total >= 2
+        else "nincs adat"
+    )
 
     if odds:
-        odds_str = f"💰 Szorzó: {home} *{odds['home']:.2f}* | {away} *{odds['away']:.2f}*"
+        odds_str = (
+            f"💰 Szorzó: {home} *{odds['home']:.2f}* | {away} *{odds['away']:.2f}*"
+        )
         if tip_odds:
             odds_str += f"\n💵 Tippelt szorzó: *{tip_odds:.2f}*"
     else:
         odds_str = "💰 Szorzó: _nem elérhető_"
 
-    msg = "\n".join([
-        f"🔶 *{home}* vs *{away}*",
-        f"📍 {league} ({category}) | 🕐 {time_str}",
-        f"",
-        odds_str,
-        f"🔁 H2H: {h2h_str}",
-        f"📈 Forma: {home} {form_bar(home_w, home_t)} | {away} {form_bar(away_w, away_t)}",
-        f"",
-        f"{tip_str}",
-        f"{confidence} (pontszám: {score:+.1f})",
-    ])
+    msg = "\n".join(
+        [
+            f"🔶 *{home}* vs *{away}*",
+            f"📍 {league} ({category}) | 🕐 {time_str}",
+            f"",
+            odds_str,
+            f"🔁 H2H: {h2h_str}",
+            f"📈 Forma: {home} {form_bar(home_w, home_t)} | {away} {form_bar(away_w, away_t)}",
+            f"",
+            f"{tip_str}",
+            f"{confidence} (pontszám: {score:+.1f})",
+        ]
+    )
     return msg, tip_odds, tip_meta
 
 
@@ -510,11 +545,12 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
 #  TELEGRAM PARANCSOK – ASZTALITENISZ
 # ─────────────────────────────────────────────
 
+
 async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Setka Cup és Czech Liga közelgő meccsek tippjei."""
     await update.message.reply_text(
         "🔍 *Setka Cup & Czech Liga* — meccsek elemzése...",
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.MARKDOWN,
     )
 
     events = []
@@ -530,23 +566,35 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
             break
 
     if not events:
-        await update.message.reply_text("❌ Nem találtam Setka Cup vagy Czech Liga meccseket ma/holnap.")
+        await update.message.reply_text(
+            "❌ Nem találtam Setka Cup vagy Czech Liga meccseket ma/holnap."
+        )
         return
 
     if used_date != date.today().isoformat():
-        await update.message.reply_text(f"ℹ️ Ma nincs meccs — holnapi ({used_date}) meccseket elemzem...")
+        await update.message.reply_text(
+            f"ℹ️ Ma nincs meccs — holnapi ({used_date}) meccseket elemzem..."
+        )
 
     # Csak a még nem befejezett meccsek
-    upcoming = [e for e in filtered_events if e.get("status", {}).get("type", "").lower() == "notstarted"]
+    upcoming = [
+        e
+        for e in filtered_events
+        if e.get("status", {}).get("type", "").lower() == "notstarted"
+    ]
     if not upcoming:
-        upcoming = [e for e in filtered_events if e.get("status", {}).get("type", "").lower() != "finished"]
+        upcoming = [
+            e
+            for e in filtered_events
+            if e.get("status", {}).get("type", "").lower() != "finished"
+        ]
     if not upcoming:
         upcoming = filtered_events
 
     league_names = sorted({e.get("tournament", {}).get("name", "?") for e in upcoming})
     await update.message.reply_text(
         f"📊 *{min(len(upcoming), 8)} meccs* elemzése — {', '.join(league_names[:3])}\n_(kérlek várj...)_",
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.MARKDOWN,
     )
 
     sent = 0
@@ -574,7 +622,9 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         footer = f"✅ *{sent} tipp generálva* (min. {MIN_ODDS:.2f}+ szorzó)"
         if skipped_low_odds:
-            footer += f"\n_({skipped_low_odds} meccs kiszűrve: szorzó {MIN_ODDS} alatt)_"
+            footer += (
+                f"\n_({skipped_low_odds} meccs kiszűrve: szorzó {MIN_ODDS} alatt)_"
+            )
         footer += "\n\n⚠️ _A tippek statisztikai elemzésen alapulnak. Felelősen fogadj!_"
         await update.message.reply_text(footer, parse_mode=ParseMode.MARKDOWN)
 
@@ -584,11 +634,18 @@ async def cmd_tt_elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔍 Élő meccsek keresése...")
     today = date.today().isoformat()
     all_events = sofascore_fetch_events(today)
-    live = [e for e in all_events
-            if is_allowed(e) and e.get("status", {}).get("type", "").lower() == "inprogress"]
+    live = [
+        e
+        for e in all_events
+        if is_allowed(e) and e.get("status", {}).get("type", "").lower() == "inprogress"
+    ]
 
     if not live:
-        total_live = [e for e in all_events if e.get("status", {}).get("type", "").lower() == "inprogress"]
+        total_live = [
+            e
+            for e in all_events
+            if e.get("status", {}).get("type", "").lower() == "inprogress"
+        ]
         msg = "🏓 Jelenleg nincs élő Setka Cup vagy Czech Liga meccs."
         if total_live:
             msg += f"\n_(Más ligában {len(total_live)} élő meccs van.)_"
@@ -614,7 +671,9 @@ async def cmd_tt_mai(update: Update, context: ContextTypes.DEFAULT_TYPE):
     events = [e for e in all_events if is_allowed(e)]
 
     if not events:
-        await update.message.reply_text(f"📅 Ma ({today}) nincs Setka Cup / Czech Liga meccs.")
+        await update.message.reply_text(
+            f"📅 Ma ({today}) nincs Setka Cup / Czech Liga meccs."
+        )
         return
 
     # Csoportosítás liga szerint
@@ -624,7 +683,9 @@ async def cmd_tt_mai(update: Update, context: ContextTypes.DEFAULT_TYPE):
         leagues.setdefault(name, []).append(e)
 
     total = len(events)
-    lines = [f"📅 *Mai meccsek — Setka Cup / Czech Liga ({today})*\n*Összesen: {total} meccs*\n"]
+    lines = [
+        f"📅 *Mai meccsek — Setka Cup / Czech Liga ({today})*\n*Összesen: {total} meccs*\n"
+    ]
 
     for league_name, lg_events in list(leagues.items())[:5]:
         lines.append(f"\n🏆 *{league_name}* ({len(lg_events)} meccs)")
@@ -641,11 +702,16 @@ async def cmd_tt_eredmenyek(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔍 Eredmények lekérése...")
     today = date.today().isoformat()
     all_events = sofascore_fetch_events(today)
-    finished = [e for e in all_events
-                if is_allowed(e) and e.get("status", {}).get("type", "").lower() == "finished"]
+    finished = [
+        e
+        for e in all_events
+        if is_allowed(e) and e.get("status", {}).get("type", "").lower() == "finished"
+    ]
 
     if not finished:
-        await update.message.reply_text("❌ Ma még nincs befejezett Setka Cup / Czech Liga meccs.")
+        await update.message.reply_text(
+            "❌ Ma még nincs befejezett Setka Cup / Czech Liga meccs."
+        )
         return
 
     lines = [f"✅ *Mai eredmények — Setka Cup / Czech Liga ({len(finished)} meccs)*\n"]
@@ -669,11 +735,16 @@ async def cmd_tt_ranglista(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔍 Mai statisztikák összesítése...")
     today = date.today().isoformat()
     all_events = sofascore_fetch_events(today)
-    events = [e for e in all_events
-              if is_allowed(e) and e.get("status", {}).get("type", "").lower() == "finished"]
+    events = [
+        e
+        for e in all_events
+        if is_allowed(e) and e.get("status", {}).get("type", "").lower() == "finished"
+    ]
 
     if not events:
-        await update.message.reply_text("❌ Nincs elég befejezett meccs a ranglista összeállításához.")
+        await update.message.reply_text(
+            "❌ Nincs elég befejezett meccs a ranglista összeállításához."
+        )
         return
 
     # Játékos statisztikák összegyűjtése
@@ -706,7 +777,9 @@ async def cmd_tt_ranglista(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(f"{i}. *{name}* — {wins}W / {losses}L ({pct}%)")
 
     if not ranked:
-        await update.message.reply_text("❌ Nincs elég adat a ranglistához (min. 3 meccs szükséges).")
+        await update.message.reply_text(
+            "❌ Nincs elég adat a ranglistához (min. 3 meccs szükséges)."
+        )
         return
 
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
@@ -716,10 +789,15 @@ async def cmd_tt_ranglista(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #  LABDARÚGÁS
 # ─────────────────────────────────────────────
 
+
 def fetch_live_football():
     try:
-        resp = requests.get(f"{FOOTBALL_API_BASE}/fixtures", headers=FOOTBALL_API_HEADERS,
-                            params={"live": "all"}, timeout=10)
+        resp = requests.get(
+            f"{FOOTBALL_API_BASE}/fixtures",
+            headers=FOOTBALL_API_HEADERS,
+            params={"live": "all"},
+            timeout=10,
+        )
         resp.raise_for_status()
         return resp.json().get("response", [])
     except Exception as e:
@@ -730,8 +808,12 @@ def fetch_live_football():
 def fetch_football_today():
     today = date.today().isoformat()
     try:
-        resp = requests.get(f"{FOOTBALL_API_BASE}/fixtures", headers=FOOTBALL_API_HEADERS,
-                            params={"date": today, "timezone": "UTC"}, timeout=10)
+        resp = requests.get(
+            f"{FOOTBALL_API_BASE}/fixtures",
+            headers=FOOTBALL_API_HEADERS,
+            params={"date": today, "timezone": "UTC"},
+            timeout=10,
+        )
         resp.raise_for_status()
         return resp.json().get("response", [])
     except Exception as e:
@@ -758,6 +840,7 @@ def format_football_fixture(fixture: dict) -> str:
 # ─────────────────────────────────────────────
 #  TELEGRAM PARANCSOK – ÁLTALÁNOS
 # ─────────────────────────────────────────────
+
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
@@ -811,23 +894,26 @@ async def cmd_mai_foci(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #  STATISZTIKA PARANCS
 # ─────────────────────────────────────────────
 
+
 async def cmd_tt_statisztika(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Tipp előzmények és nyerési arány kimutatása."""
-    await update.message.reply_text("📊 Statisztikák frissítése...", parse_mode=ParseMode.MARKDOWN)
+    await update.message.reply_text(
+        "📊 Statisztikák frissítése...", parse_mode=ParseMode.MARKDOWN
+    )
 
     tips = load_tips()
     if not tips:
         await update.message.reply_text(
             "📭 Még nincs mentett tipp. A bot indítása óta nem küldött tippet, "
             "vagy a fájl törlődött.",
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
     # Lezáratlan tippek eredményeinek lekérése
     tips = resolve_pending_tips(tips)
 
-    wins   = [t for t in tips if t.get("result") == "win"]
+    wins = [t for t in tips if t.get("result") == "win"]
     losses = [t for t in tips if t.get("result") == "loss"]
     pending = [t for t in tips if t.get("result") is None]
 
@@ -865,7 +951,9 @@ async def cmd_tt_statisztika(update: Update, context: ContextTypes.DEFAULT_TYPE)
         r = t.get("result")
         icon = "✅" if r == "win" else ("❌" if r == "loss" else "⏳")
         odds_str = f" @ {t['odds']:.2f}" if t.get("odds") else ""
-        recent_lines.append(f"{icon} {t['predicted_name']}{odds_str} — {t['home']} vs {t['away']}")
+        recent_lines.append(
+            f"{icon} {t['predicted_name']}{odds_str} — {t['home']} vs {t['away']}"
+        )
 
     lines = [
         f"📊 *Tipp statisztikák*\n",
@@ -875,14 +963,18 @@ async def cmd_tt_statisztika(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ]
     if roi_count > 0:
         roi_icon = "📈" if roi_pct >= 0 else "📉"
-        lines.append(f"{roi_icon} Becsült ROI: *{roi_pct:+.1f}%* (1 egységes tét alapján)")
+        lines.append(
+            f"{roi_icon} Becsült ROI: *{roi_pct:+.1f}%* (1 egységes tét alapján)"
+        )
 
     if league_stats:
         lines.append("\n*Ligánkénti bontás:*")
         for lg, s in league_stats.items():
             tot = s["wins"] + s["losses"]
-            pct = f"{s['wins']/tot*100:.0f}%" if tot > 0 else "–"
-            lines.append(f"• {lg}: {s['wins']}W / {s['losses']}L ({pct}) | ⏳ {s['pending']}")
+            pct = f"{s['wins'] / tot * 100:.0f}%" if tot > 0 else "–"
+            lines.append(
+                f"• {lg}: {s['wins']}W / {s['losses']}L ({pct}) | ⏳ {s['pending']}"
+            )
 
     if recent_lines:
         lines.append("\n*Utolsó 5 tipp:*")
@@ -896,10 +988,13 @@ async def cmd_tt_statisztika(update: Update, context: ContextTypes.DEFAULT_TYPE)
 #  AUTOMATIKUS STARTUP TIPPEK
 # ─────────────────────────────────────────────
 
+
 async def send_startup_tips(app):
     """Bot indításkor automatikusan elküldi a következő 8 óra tippjeit a chat_id-re."""
     if not TELEGRAM_CHAT_ID:
-        logger.warning("TELEGRAM_CHAT_ID nincs beállítva – startup tippek nem küldhetők.")
+        logger.warning(
+            "TELEGRAM_CHAT_ID nincs beállítva – startup tippek nem küldhetők."
+        )
         return
 
     logger.info("Startup tippek generálása (következő 8 óra)...")
@@ -910,16 +1005,22 @@ async def send_startup_tips(app):
     events = sofascore_fetch_events(today)
 
     # Ha a horizont átnyúlik a következő napra, adjuk hozzá holnap meccseit is
-    if horizon_ts > int(datetime(
-        datetime.utcnow().year,
-        datetime.utcnow().month,
-        datetime.utcnow().day, 23, 59, 59
-    ).timestamp()):
+    if horizon_ts > int(
+        datetime(
+            datetime.utcnow().year,
+            datetime.utcnow().month,
+            datetime.utcnow().day,
+            23,
+            59,
+            59,
+        ).timestamp()
+    ):
         tomorrow = (date.today() + timedelta(days=1)).isoformat()
         events += sofascore_fetch_events(tomorrow)
 
     upcoming_8h = [
-        e for e in events
+        e
+        for e in events
         if is_allowed(e)
         and e.get("status", {}).get("type", "").lower() == "notstarted"
         and now_ts <= e.get("startTimestamp", 0) <= horizon_ts
@@ -934,9 +1035,7 @@ async def send_startup_tips(app):
         )
         return
 
-    league_names = list({
-        e.get("tournament", {}).get("name", "?") for e in upcoming_8h
-    })
+    league_names = list({e.get("tournament", {}).get("name", "?") for e in upcoming_8h})
     await app.bot.send_message(
         chat_id=TELEGRAM_CHAT_ID,
         text=(
@@ -1000,6 +1099,7 @@ async def send_startup_tips(app):
 #  EREDMÉNY FIGYELŐ ÉS ÉRTESÍTŐ
 # ─────────────────────────────────────────────
 
+
 async def check_results_and_notify(context):
     """10 percenként ellenőrzi a lezárt meccseket és Telegramra küldi az eredményt."""
     if not TELEGRAM_CHAT_ID:
@@ -1045,7 +1145,9 @@ async def check_results_and_notify(context):
                 text=msg,
                 parse_mode=ParseMode.MARKDOWN,
             )
-            logger.info(f"Eredmény értesítő elküldve: event_id={t['event_id']}, result={result}")
+            logger.info(
+                f"Eredmény értesítő elküldve: event_id={t['event_id']}, result={result}"
+            )
         except Exception as e:
             logger.error(f"Eredmény értesítő hiba: {e}")
 
@@ -1072,7 +1174,8 @@ async def scan_and_send_tips(context):
     events += sofascore_fetch_events(tomorrow)
 
     upcoming = [
-        e for e in events
+        e
+        for e in events
         if is_allowed(e)
         and e.get("status", {}).get("type", "").lower() == "notstarted"
         and now_ts <= e.get("startTimestamp", 0) <= horizon_ts
@@ -1115,6 +1218,7 @@ async def scan_and_send_tips(context):
 #  FŐPROGRAM
 # ─────────────────────────────────────────────
 
+
 def backfill_prod_api():
     """Induláskor feltölti az összes dev DB tippet a production API-ra (ha PROD_API_URL be van állítva)."""
     if not PROD_API_URL:
@@ -1138,18 +1242,23 @@ def backfill_prod_api():
                     "start_timestamp": t["start_timestamp"],
                     "sent_at": t["sent_at"],
                 },
-                timeout=8
+                timeout=8,
             )
             if t.get("result"):
                 requests.patch(
                     f"{PROD_API_URL}/api/tips/{t['event_id']}",
-                    json={"result": t["result"], "actual_winner": t.get("actual_winner")},
-                    timeout=8
+                    json={
+                        "result": t["result"],
+                        "actual_winner": t.get("actual_winner"),
+                    },
+                    timeout=8,
                 )
             ok += 1
         except Exception as e:
             logger.warning(f"Backfill hiba event_id={t['event_id']}: {e}")
-    logger.info(f"Production API backfill kész: {ok}/{len(tips)} tipp feltöltve → {PROD_API_URL}")
+    logger.info(
+        f"Production API backfill kész: {ok}/{len(tips)} tipp feltöltve → {PROD_API_URL}"
+    )
 
 
 def main():
@@ -1188,7 +1297,7 @@ def main():
         app.job_queue.run_repeating(
             check_results_and_notify,
             interval=600,  # 10 percenként
-            first=120,     # első futás 2 perccel az indítás után
+            first=120,  # első futás 2 perccel az indítás után
         )
         logger.info(f"Automatikus tipp figyelő bekapcsolva ({SCAN_INTERVAL_SEC}s).")
         logger.info("Eredmény értesítő bekapcsolva (600s).")
