@@ -17,7 +17,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 CORNERS_BOT_TOKEN = os.environ["CORNERS_BOT_TOKEN"]
-CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID", "")
+CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 FOOTBALL_API_BASE = "https://v3.football.api-sports.io"
