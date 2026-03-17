@@ -1,20 +1,9 @@
 import { Router } from "express";
-import fs from "fs";
-import path from "path";
+import { Pool } from "pg";
 
 const router = Router();
 
-const TIPS_FILE_CANDIDATES = [
-  path.resolve(process.cwd(), "tips_history.json"),
-  path.resolve(process.cwd(), "../../tips_history.json"),
-];
-
-function findTipsFile(): string {
-  for (const candidate of TIPS_FILE_CANDIDATES) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  return TIPS_FILE_CANDIDATES[0];
-}
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 interface Tip {
   event_id: number;
@@ -30,22 +19,24 @@ interface Tip {
   actual_winner: "home" | "away" | null;
 }
 
-function loadTips(): Tip[] {
+async function loadTips(): Promise<Tip[]> {
   try {
-    const raw = fs.readFileSync(findTipsFile(), "utf-8");
-    return JSON.parse(raw) as Tip[];
+    const { rows } = await pool.query<Tip>(
+      "SELECT * FROM tips ORDER BY sent_at DESC"
+    );
+    return rows;
   } catch {
     return [];
   }
 }
 
-router.get("/tips", (_req, res) => {
-  const tips = loadTips();
+router.get("/tips", async (_req, res) => {
+  const tips = await loadTips();
   res.json({ tips });
 });
 
-router.get("/tips/stats", (_req, res) => {
-  const tips = loadTips();
+router.get("/tips/stats", async (_req, res) => {
+  const tips = await loadTips();
 
   const settled = tips.filter((t) => t.result !== null);
   const wins = settled.filter((t) => t.result === "win");
@@ -54,18 +45,16 @@ router.get("/tips/stats", (_req, res) => {
 
   const winRate = settled.length > 0 ? (wins.length / settled.length) * 100 : 0;
 
-  // ROI calculation (1-unit stake)
   let roiSum = 0;
   let roiCount = 0;
   for (const t of settled) {
     if (t.odds) {
-      roiSum += t.result === "win" ? t.odds - 1 : -1;
+      roiSum += t.result === "win" ? Number(t.odds) - 1 : -1;
       roiCount++;
     }
   }
   const roi = roiCount > 0 ? (roiSum / roiCount) * 100 : 0;
 
-  // Per-league breakdown
   const leagueMap: Record<string, { wins: number; losses: number; pending: number }> = {};
   for (const t of tips) {
     if (!leagueMap[t.league]) leagueMap[t.league] = { wins: 0, losses: 0, pending: 0 };
@@ -74,10 +63,7 @@ router.get("/tips/stats", (_req, res) => {
     else leagueMap[t.league].pending++;
   }
 
-  // Last 20 tips sorted by time desc
-  const recent = [...tips]
-    .sort((a, b) => (b.sent_at ?? 0) - (a.sent_at ?? 0))
-    .slice(0, 20);
+  const recent = [...tips].slice(0, 20);
 
   res.json({
     total: tips.length,

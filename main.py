@@ -2,6 +2,8 @@ import os
 import json
 import logging
 import requests
+import psycopg2
+import psycopg2.extras
 from datetime import datetime, date, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -243,28 +245,48 @@ def calculate_tip(
 
 
 MIN_ODDS = 1.50       # Csak ennél magasabb szorzójú tippeket mutatjuk
-TIPS_FILE = "tips_history.json"
-
-
 # ─────────────────────────────────────────────
-#  TIPP ELŐZMÉNYEK
+#  ADATBÁZIS – TIPP ELŐZMÉNYEK
 # ─────────────────────────────────────────────
+
+def get_db_conn():
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
 
 def load_tips() -> list:
     try:
-        with open(TIPS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+        conn = get_db_conn()
+        with conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT * FROM tips ORDER BY sent_at DESC")
+                rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"DB load_tips hiba: {e}")
         return []
 
 
 def save_tip_record(record: dict):
-    tips = load_tips()
-    if any(t["event_id"] == record["event_id"] for t in tips):
-        return  # már el lett mentve
-    tips.append(record)
-    with open(TIPS_FILE, "w", encoding="utf-8") as f:
-        json.dump(tips, f, ensure_ascii=False, indent=2)
+    try:
+        conn = get_db_conn()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO tips
+                        (event_id, home, away, league, predicted, predicted_name,
+                         odds, start_timestamp, sent_at, result, actual_winner)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (event_id) DO NOTHING
+                """, (
+                    record["event_id"], record["home"], record["away"],
+                    record["league"], record["predicted"], record["predicted_name"],
+                    record.get("odds"), record["start_timestamp"], record["sent_at"],
+                    record.get("result"), record.get("actual_winner")
+                ))
+        conn.close()
+    except Exception as e:
+        logger.error(f"DB save_tip_record hiba: {e}")
 
 
 def fetch_match_result(event_id: int) -> str | None:
@@ -292,24 +314,33 @@ def fetch_match_result(event_id: int) -> str | None:
         return None
 
 
+def update_tip_result(event_id: int, result: str, actual_winner: str):
+    try:
+        conn = get_db_conn()
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    UPDATE tips SET result=%s, actual_winner=%s WHERE event_id=%s
+                """, (result, actual_winner, event_id))
+        conn.close()
+    except Exception as e:
+        logger.error(f"DB update_tip_result hiba: {e}")
+
+
 def resolve_pending_tips(tips: list) -> list:
-    """Lekéri a még lezáratlan tippek eredményét és frissíti a listát."""
+    """Lekéri a még lezáratlan tippek eredményét és frissíti az adatbázisban."""
     now_ts = int(datetime.utcnow().timestamp())
-    changed = False
     for t in tips:
         if t.get("result") is not None:
             continue
-        # Csak 45 perccel a meccs után próbáljuk meg (asztalitenisz ~20-40 perc)
         if t.get("start_timestamp", 0) + 45 * 60 > now_ts:
             continue
         actual = fetch_match_result(t["event_id"])
         if actual is not None:
+            result = "win" if actual == t["predicted"] else "loss"
             t["actual_winner"] = actual
-            t["result"] = "win" if actual == t["predicted"] else "loss"
-            changed = True
-    if changed:
-        with open(TIPS_FILE, "w", encoding="utf-8") as f:
-            json.dump(tips, f, ensure_ascii=False, indent=2)
+            t["result"] = result
+            update_tip_result(t["event_id"], result, actual)
     return tips
 
 
@@ -918,11 +949,12 @@ async def check_results_and_notify(context):
         if actual is None:
             continue
 
+        result = "win" if actual == t["predicted"] else "loss"
         t["actual_winner"] = actual
-        t["result"] = "win" if actual == t["predicted"] else "loss"
-        changed = True
+        t["result"] = result
+        update_tip_result(t["event_id"], result, actual)
 
-        won = t["result"] == "win"
+        won = result == "win"
         icon = "✅" if won else "❌"
         result_text = "NYERT" if won else "VESZETT"
         odds_text = f"{t['odds']:.2f}" if t.get("odds") else "N/A"
@@ -943,13 +975,9 @@ async def check_results_and_notify(context):
                 text=msg,
                 parse_mode=ParseMode.MARKDOWN,
             )
-            logger.info(f"Eredmény értesítő elküldve: event_id={t['event_id']}, result={t['result']}")
+            logger.info(f"Eredmény értesítő elküldve: event_id={t['event_id']}, result={result}")
         except Exception as e:
             logger.error(f"Eredmény értesítő hiba: {e}")
-
-    if changed:
-        with open(TIPS_FILE, "w", encoding="utf-8") as f:
-            json.dump(tips, f, ensure_ascii=False, indent=2)
 
 
 # ─────────────────────────────────────────────
