@@ -57,6 +57,43 @@ def sofascore_fetch_h2h(event_id: int) -> list:
         return []
 
 
+def sofascore_fetch_odds(event_id: int) -> dict | None:
+    """Szorzók lekérése egy meccshez. Visszaad: {'home': float, 'away': float} vagy None."""
+    url = f"https://www.sofascore.com/api/v1/event/{event_id}/odds/1/all"
+    try:
+        resp = requests.get(url, headers=SOFASCORE_HEADERS, timeout=8)
+        if resp.status_code != 200:
+            return None
+        markets = resp.json().get("markets", [])
+        for market in markets:
+            if market.get("marketName") == "Full time":
+                choices = market.get("choices", [])
+                odds_map = {}
+                for c in choices:
+                    name = c.get("name", "")
+                    frac = c.get("fractionalValue", "")
+                    decimal_odd = fractional_to_decimal(frac)
+                    if decimal_odd:
+                        odds_map[name] = decimal_odd
+                if "1" in odds_map and "2" in odds_map:
+                    return {"home": odds_map["1"], "away": odds_map["2"]}
+        return None
+    except Exception as e:
+        logger.error(f"Odds fetch hiba: {e}")
+        return None
+
+
+def fractional_to_decimal(frac: str) -> float | None:
+    """Törtszám odds konvertálása decimálisba. Pl. '8/11' → 1.727"""
+    try:
+        if "/" in frac:
+            num, den = frac.split("/")
+            return round(int(num) / int(den) + 1, 3)
+        return float(frac) + 1
+    except Exception:
+        return None
+
+
 def is_allowed(event: dict) -> bool:
     """Csak Setka Cup és Czech Liga meccsek."""
     t = event.get("tournament", {})
@@ -186,8 +223,14 @@ def calculate_tip(
         return "uncertain", "🔴 Bizonytalan", score
 
 
-def build_tip_message(event: dict, all_events: list) -> str:
-    """Tipp üzenet összeállítása egy meccshez."""
+MIN_ODDS = 1.50  # Csak ennél magasabb szorzójú tippeket mutatjuk
+
+
+def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float | None]:
+    """
+    Tipp üzenet összeállítása egy meccshez.
+    Visszaad: (üzenet vagy None ha szorzó < MIN_ODDS, tippelt szorzó vagy None)
+    """
     home = event.get("homeTeam", {}).get("name", "?")
     away = event.get("awayTeam", {}).get("name", "?")
     event_id = event.get("id")
@@ -195,6 +238,9 @@ def build_tip_message(event: dict, all_events: list) -> str:
     category = event.get("tournament", {}).get("category", {}).get("name", "")
     ts = event.get("startTimestamp")
     time_str = datetime.utcfromtimestamp(ts).strftime("%H:%M UTC") if ts else "?"
+
+    # Szorzók lekérése
+    odds = sofascore_fetch_odds(event_id) if event_id else None
 
     # H2H
     h2h_home_wins, h2h_total = 0, 0
@@ -212,6 +258,19 @@ def build_tip_message(event: dict, all_events: list) -> str:
         away_w, away_t,
     )
 
+    # Szorzó meghatározása a tippelt oldalhoz
+    tip_odds = None
+    if odds:
+        if winner == "home":
+            tip_odds = odds["home"]
+        elif winner == "away":
+            tip_odds = odds["away"]
+
+    # Szorzó szűrés: ha nincs odds adat, átengedjük
+    if tip_odds is not None and tip_odds < MIN_ODDS:
+        return None, tip_odds
+
+    # Üzenet összeállítása
     if winner == "home":
         tip_str = f"🏓 *Tipp: {home}* győz"
     elif winner == "away":
@@ -219,18 +278,28 @@ def build_tip_message(event: dict, all_events: list) -> str:
     else:
         tip_str = "🏓 *Tipp: Nagyon szoros meccs*"
 
-    h2h_str = f"{h2h_home_wins}–{h2h_total - h2h_home_wins}" if h2h_total >= 2 else "nincs elég adat"
+    h2h_str = f"{h2h_home_wins}–{h2h_total - h2h_home_wins}" if h2h_total >= 2 else "nincs adat"
 
-    return "\n".join([
+    # Szorzó sor
+    if odds:
+        odds_str = f"💰 Szorzó: {home} *{odds['home']:.2f}* | {away} *{odds['away']:.2f}*"
+        if tip_odds:
+            odds_str += f"\n💵 Tippelt szorzó: *{tip_odds:.2f}*"
+    else:
+        odds_str = "💰 Szorzó: _nem elérhető_"
+
+    msg = "\n".join([
         f"🔶 *{home}* vs *{away}*",
         f"📍 {league} ({category}) | 🕐 {time_str}",
         f"",
+        odds_str,
         f"🔁 H2H: {h2h_str}",
         f"📈 Forma: {home} {form_bar(home_w, home_t)} | {away} {form_bar(away_w, away_t)}",
         f"",
         f"{tip_str}",
         f"{confidence} (pontszám: {score:+.1f})",
     ])
+    return msg, tip_odds
 
 
 # ─────────────────────────────────────────────
@@ -277,22 +346,34 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     sent = 0
-    for event in upcoming[:8]:
+    skipped_low_odds = 0
+    for event in upcoming[:15]:
         try:
-            msg = build_tip_message(event, events)
+            msg, tip_odds = build_tip_message(event, events)
+            if msg is None:
+                skipped_low_odds += 1
+                logger.info(f"Kiszűrve (szorzó {tip_odds:.2f} < {MIN_ODDS}): "
+                            f"{event.get('homeTeam',{}).get('name')} vs "
+                            f"{event.get('awayTeam',{}).get('name')}")
+                continue
             await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
             sent += 1
+            if sent >= 8:
+                break
         except Exception as e:
             logger.error(f"Tipp hiba: {e}")
 
     if sent == 0:
-        await update.message.reply_text("❌ Nem sikerült tippet generálni. Próbáld újra.")
+        msg = f"❌ Nem találtam {MIN_ODDS:.2f}+ szorzójú tippet az elemzett meccsekből."
+        if skipped_low_odds:
+            msg += f"\n_{skipped_low_odds} meccs ki lett szűrve, mert a tippelt oldal szorzója {MIN_ODDS} alatt volt._"
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
     else:
-        await update.message.reply_text(
-            f"✅ *{sent} tipp generálva!*\n\n"
-            "⚠️ _A tippek statisztikai elemzésen alapulnak. Felelősen fogadj!_",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        footer = f"✅ *{sent} tipp generálva* (min. {MIN_ODDS:.2f}+ szorzó)"
+        if skipped_low_odds:
+            footer += f"\n_({skipped_low_odds} meccs kiszűrve: szorzó {MIN_ODDS} alatt)_"
+        footer += "\n\n⚠️ _A tippek statisztikai elemzésen alapulnak. Felelősen fogadj!_"
+        await update.message.reply_text(footer, parse_mode=ParseMode.MARKDOWN)
 
 
 async def cmd_tt_elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
