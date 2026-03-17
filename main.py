@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import requests
 from datetime import datetime, date, timedelta
@@ -241,13 +242,81 @@ def calculate_tip(
         return "uncertain", "🔴 Bizonytalan", score
 
 
-MIN_ODDS = 1.50  # Csak ennél magasabb szorzójú tippeket mutatjuk
+MIN_ODDS = 1.50       # Csak ennél magasabb szorzójú tippeket mutatjuk
+TIPS_FILE = "tips_history.json"
 
 
-def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float | None]:
+# ─────────────────────────────────────────────
+#  TIPP ELŐZMÉNYEK
+# ─────────────────────────────────────────────
+
+def load_tips() -> list:
+    try:
+        with open(TIPS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def save_tip_record(record: dict):
+    tips = load_tips()
+    if any(t["event_id"] == record["event_id"] for t in tips):
+        return  # már el lett mentve
+    tips.append(record)
+    with open(TIPS_FILE, "w", encoding="utf-8") as f:
+        json.dump(tips, f, ensure_ascii=False, indent=2)
+
+
+def fetch_match_result(event_id: int) -> str | None:
+    """
+    Lekéri a meccs végeredményét. Visszaad: 'home', 'away', vagy None ha még nincs vége.
+    """
+    try:
+        r = requests.get(
+            f"https://www.sofascore.com/api/v1/event/{event_id}",
+            headers=SOFASCORE_HEADERS, timeout=8
+        )
+        if r.status_code != 200:
+            return None
+        event = r.json().get("event", {})
+        if event.get("status", {}).get("type", "").lower() != "finished":
+            return None
+        hs = event.get("homeScore", {}).get("current", 0) or 0
+        as_ = event.get("awayScore", {}).get("current", 0) or 0
+        if hs > as_:
+            return "home"
+        elif as_ > hs:
+            return "away"
+        return None
+    except Exception:
+        return None
+
+
+def resolve_pending_tips(tips: list) -> list:
+    """Lekéri a még lezáratlan tippek eredményét és frissíti a listát."""
+    now_ts = int(datetime.utcnow().timestamp())
+    changed = False
+    for t in tips:
+        if t.get("result") is not None:
+            continue
+        # Csak 90 perccel a meccs után próbáljuk meg
+        if t.get("start_timestamp", 0) + 90 * 60 > now_ts:
+            continue
+        actual = fetch_match_result(t["event_id"])
+        if actual is not None:
+            t["actual_winner"] = actual
+            t["result"] = "win" if actual == t["predicted"] else "loss"
+            changed = True
+    if changed:
+        with open(TIPS_FILE, "w", encoding="utf-8") as f:
+            json.dump(tips, f, ensure_ascii=False, indent=2)
+    return tips
+
+
+def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float | None, dict | None]:
     """
     Tipp üzenet összeállítása egy meccshez.
-    Visszaad: (üzenet vagy None ha szorzó < MIN_ODDS, tippelt szorzó vagy None)
+    Visszaad: (üzenet vagy None, tippelt szorzó vagy None, tipp-meta dict vagy None)
     """
     home = event.get("homeTeam", {}).get("name", "?")
     away = event.get("awayTeam", {}).get("name", "?")
@@ -277,7 +346,7 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
 
     # Csak Erős tippeket küldünk
     if confidence != "🟢 Erős tipp":
-        return None, None
+        return None, None, None
 
     # Szorzó meghatározása a tippelt oldalhoz
     tip_odds = None
@@ -289,19 +358,32 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
 
     # Szorzó szűrés: ha nincs odds adat, átengedjük
     if tip_odds is not None and tip_odds < MIN_ODDS:
-        return None, tip_odds
+        return None, tip_odds, None
+
+    # Tipp meta adat (mentéshez)
+    predicted_name = home if winner == "home" else away
+    tip_meta = {
+        "event_id": event_id,
+        "home": home,
+        "away": away,
+        "league": league,
+        "predicted": winner,
+        "predicted_name": predicted_name,
+        "odds": tip_odds,
+        "start_timestamp": ts,
+        "sent_at": int(datetime.utcnow().timestamp()),
+        "result": None,
+        "actual_winner": None,
+    }
 
     # Üzenet összeállítása
     if winner == "home":
         tip_str = f"🏓 *Tipp: {home}* győz"
-    elif winner == "away":
-        tip_str = f"🏓 *Tipp: {away}* győz"
     else:
-        tip_str = "🏓 *Tipp: Nagyon szoros meccs*"
+        tip_str = f"🏓 *Tipp: {away}* győz"
 
     h2h_str = f"{h2h_home_wins}–{h2h_total - h2h_home_wins}" if h2h_total >= 2 else "nincs adat"
 
-    # Szorzó sor
     if odds:
         odds_str = f"💰 Szorzó: {home} *{odds['home']:.2f}* | {away} *{odds['away']:.2f}*"
         if tip_odds:
@@ -320,7 +402,7 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
         f"{tip_str}",
         f"{confidence} (pontszám: {score:+.1f})",
     ])
-    return msg, tip_odds
+    return msg, tip_odds, tip_meta
 
 
 # ─────────────────────────────────────────────
@@ -370,14 +452,13 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
     skipped_low_odds = 0
     for event in upcoming[:15]:
         try:
-            msg, tip_odds = build_tip_message(event, events)
+            msg, tip_odds, tip_meta = build_tip_message(event, events)
             if msg is None:
                 skipped_low_odds += 1
-                logger.info(f"Kiszűrve (szorzó {tip_odds:.2f} < {MIN_ODDS}): "
-                            f"{event.get('homeTeam',{}).get('name')} vs "
-                            f"{event.get('awayTeam',{}).get('name')}")
                 continue
             await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+            if tip_meta:
+                save_tip_record(tip_meta)
             sent += 1
             if sent >= 8:
                 break
@@ -585,7 +666,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/tt\\_elo — Élő meccsek\n"
         "/tt\\_mai — Mai összes meccs\n"
         "/tt\\_eredmenyek — Mai eredmények\n"
-        "/tt\\_ranglista — Legjobb játékosok ma\n\n"
+        "/tt\\_ranglista — Legjobb játékosok ma\n"
+        "/tt\\_statisztika — Nyerési arány és tipp előzmények\n\n"
         "⚽ *Labdarúgás:*\n"
         "/live — Élő futballmeccsek\n"
         "/mai — Mai futballmeccsek\n\n"
@@ -621,6 +703,91 @@ async def cmd_mai_foci(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append(format_football_fixture(f))
     if len(fixtures) > 20:
         lines.append(f"\n_...és még {len(fixtures) - 20} meccs_")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+
+# ─────────────────────────────────────────────
+#  STATISZTIKA PARANCS
+# ─────────────────────────────────────────────
+
+async def cmd_tt_statisztika(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tipp előzmények és nyerési arány kimutatása."""
+    await update.message.reply_text("📊 Statisztikák frissítése...", parse_mode=ParseMode.MARKDOWN)
+
+    tips = load_tips()
+    if not tips:
+        await update.message.reply_text(
+            "📭 Még nincs mentett tipp. A bot indítása óta nem küldött tippet, "
+            "vagy a fájl törlődött.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    # Lezáratlan tippek eredményeinek lekérése
+    tips = resolve_pending_tips(tips)
+
+    wins   = [t for t in tips if t.get("result") == "win"]
+    losses = [t for t in tips if t.get("result") == "loss"]
+    pending = [t for t in tips if t.get("result") is None]
+
+    total_settled = len(wins) + len(losses)
+    win_rate = (len(wins) / total_settled * 100) if total_settled > 0 else 0
+
+    # ROI becslés (ha van odds adat)
+    roi_total = 0.0
+    roi_count = 0
+    for t in wins + losses:
+        o = t.get("odds")
+        if o:
+            roi_total += (o - 1) if t["result"] == "win" else -1
+            roi_count += 1
+    roi_pct = (roi_total / roi_count * 100) if roi_count > 0 else 0
+
+    # Ligánkénti bontás
+    league_stats: dict[str, dict] = {}
+    for t in tips:
+        lg = t.get("league", "?")
+        if lg not in league_stats:
+            league_stats[lg] = {"wins": 0, "losses": 0, "pending": 0}
+        r = t.get("result")
+        if r == "win":
+            league_stats[lg]["wins"] += 1
+        elif r == "loss":
+            league_stats[lg]["losses"] += 1
+        else:
+            league_stats[lg]["pending"] += 1
+
+    # Utolsó 5 tipp
+    recent = sorted(tips, key=lambda t: t.get("sent_at", 0), reverse=True)[:5]
+    recent_lines = []
+    for t in recent:
+        r = t.get("result")
+        icon = "✅" if r == "win" else ("❌" if r == "loss" else "⏳")
+        odds_str = f" @ {t['odds']:.2f}" if t.get("odds") else ""
+        recent_lines.append(f"{icon} {t['predicted_name']}{odds_str} — {t['home']} vs {t['away']}")
+
+    lines = [
+        f"📊 *Tipp statisztikák*\n",
+        f"🎯 Összes tipp: *{len(tips)}* ({total_settled} lezárt, {len(pending)} folyamatban)",
+        f"✅ Nyert: *{len(wins)}* | ❌ Veszített: *{len(losses)}*",
+        f"📈 Nyerési arány: *{win_rate:.1f}%*",
+    ]
+    if roi_count > 0:
+        roi_icon = "📈" if roi_pct >= 0 else "📉"
+        lines.append(f"{roi_icon} Becsült ROI: *{roi_pct:+.1f}%* (1 egységes tét alapján)")
+
+    if league_stats:
+        lines.append("\n*Ligánkénti bontás:*")
+        for lg, s in league_stats.items():
+            tot = s["wins"] + s["losses"]
+            pct = f"{s['wins']/tot*100:.0f}%" if tot > 0 else "–"
+            lines.append(f"• {lg}: {s['wins']}W / {s['losses']}L ({pct}) | ⏳ {s['pending']}")
+
+    if recent_lines:
+        lines.append("\n*Utolsó 5 tipp:*")
+        lines.extend(recent_lines)
+
+    lines.append("\n⚠️ _Statisztikai elemzésen alapul. Felelősen fogadj!_")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
@@ -686,7 +853,7 @@ async def send_startup_tips(app):
         if sent >= MAX_STARTUP_TIPS:
             break
         try:
-            msg, tip_odds = build_tip_message(event, events)
+            msg, tip_odds, tip_meta = build_tip_message(event, events)
             if msg is None:
                 continue
             await app.bot.send_message(
@@ -694,6 +861,8 @@ async def send_startup_tips(app):
                 text=msg,
                 parse_mode=ParseMode.MARKDOWN,
             )
+            if tip_meta:
+                save_tip_record(tip_meta)
             sent += 1
         except Exception as e:
             logger.error(f"Startup tipp hiba: {e}")
@@ -737,6 +906,7 @@ def main():
     app.add_handler(CommandHandler("tt_mai", cmd_tt_mai))
     app.add_handler(CommandHandler("tt_eredmenyek", cmd_tt_eredmenyek))
     app.add_handler(CommandHandler("tt_ranglista", cmd_tt_ranglista))
+    app.add_handler(CommandHandler("tt_statisztika", cmd_tt_statisztika))
 
     # Labdarúgás
     app.add_handler(CommandHandler("live", cmd_live))

@@ -1,0 +1,28 @@
+[
+  {
+    "event_id": 15758976,
+    "home": "Pesternikov D.",
+    "away": "Scherbak D.",
+    "league": "Setka Cup",
+    "predicted": "home",
+    "predicted_name": "Pesternikov D.",
+    "odds": null,
+    "start_timestamp": 1773748380,
+    "sent_at": 1773745393,
+    "result": null,
+    "actual_winner": null
+  },
+  {
+    "event_id": 15759013,
+    "home": "Hnoievoi R.",
+    "away": "Oleksii Shyndel",
+    "league": "Setka Cup",
+    "predicted": "away",
+    "predicted_name": "Oleksii Shyndel",
+    "odds": 2.0,
+    "start_timestamp": 1773759180,
+    "sent_at": 1773745402,
+    "result": null,
+    "actual_winner": null
+  }
+]
