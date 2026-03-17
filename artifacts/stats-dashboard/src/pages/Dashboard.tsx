@@ -97,16 +97,24 @@ export default function Dashboard() {
             Élő adatok a SofaScore alapján
           </p>
         </div>
-        <button
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm"
-        >
-          <RefreshCcw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />
-          <span className="font-medium text-sm">
-            {isFetching ? "Frissítés..." : "Frissítés"}
-          </span>
-        </button>
+        <div className="flex items-center gap-3">
+          <a
+            href={`${import.meta.env.BASE_URL || "/"}corners`}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
+          >
+            ⚽ Szöglet stat →
+          </a>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm"
+          >
+            <RefreshCcw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />
+            <span className="font-medium text-sm">
+              {isFetching ? "Frissítés..." : "Frissítés"}
+            </span>
+          </button>
+        </div>
       </div>
 
       {total === 0 ? (
