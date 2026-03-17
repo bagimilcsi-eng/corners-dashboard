@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+PROD_API_URL = os.environ.get("PROD_API_URL", "").rstrip("/")
 
 SOFASCORE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -285,6 +286,7 @@ def save_tip_record(record: dict):
                     record.get("result"), record.get("actual_winner")
                 ))
         conn.close()
+        sync_tip_to_prod(record)
     except Exception as e:
         logger.error(f"DB save_tip_record hiba: {e}")
 
@@ -323,8 +325,47 @@ def update_tip_result(event_id: int, result: str, actual_winner: str):
                     UPDATE tips SET result=%s, actual_winner=%s WHERE event_id=%s
                 """, (result, actual_winner, event_id))
         conn.close()
+        sync_result_to_prod(event_id, result, actual_winner)
     except Exception as e:
         logger.error(f"DB update_tip_result hiba: {e}")
+
+
+def sync_tip_to_prod(record: dict):
+    """Elküldi a tippet a production API-ra ha PROD_API_URL be van állítva."""
+    if not PROD_API_URL:
+        return
+    try:
+        requests.post(
+            f"{PROD_API_URL}/api/tips",
+            json={
+                "event_id": record["event_id"],
+                "home": record["home"],
+                "away": record["away"],
+                "league": record["league"],
+                "predicted": record["predicted"],
+                "predicted_name": record["predicted_name"],
+                "odds": record.get("odds"),
+                "start_timestamp": record["start_timestamp"],
+                "sent_at": record["sent_at"],
+            },
+            timeout=6
+        )
+    except Exception as e:
+        logger.warning(f"Prod API tipp sync hiba: {e}")
+
+
+def sync_result_to_prod(event_id: int, result: str, actual_winner: str):
+    """Frissíti az eredményt a production API-n ha PROD_API_URL be van állítva."""
+    if not PROD_API_URL:
+        return
+    try:
+        requests.patch(
+            f"{PROD_API_URL}/api/tips/{event_id}",
+            json={"result": result, "actual_winner": actual_winner},
+            timeout=6
+        )
+    except Exception as e:
+        logger.warning(f"Prod API eredmény sync hiba: {e}")
 
 
 def resolve_pending_tips(tips: list) -> list:
@@ -1045,8 +1086,46 @@ async def scan_and_send_tips(context):
 #  FŐPROGRAM
 # ─────────────────────────────────────────────
 
+def backfill_prod_api():
+    """Induláskor feltölti az összes dev DB tippet a production API-ra (ha PROD_API_URL be van állítva)."""
+    if not PROD_API_URL:
+        return
+    tips = load_tips()
+    if not tips:
+        return
+    ok = 0
+    for t in tips:
+        try:
+            resp = requests.post(
+                f"{PROD_API_URL}/api/tips",
+                json={
+                    "event_id": t["event_id"],
+                    "home": t["home"],
+                    "away": t["away"],
+                    "league": t["league"],
+                    "predicted": t["predicted"],
+                    "predicted_name": t["predicted_name"],
+                    "odds": float(t["odds"]) if t.get("odds") is not None else None,
+                    "start_timestamp": t["start_timestamp"],
+                    "sent_at": t["sent_at"],
+                },
+                timeout=8
+            )
+            if t.get("result"):
+                requests.patch(
+                    f"{PROD_API_URL}/api/tips/{t['event_id']}",
+                    json={"result": t["result"], "actual_winner": t.get("actual_winner")},
+                    timeout=8
+                )
+            ok += 1
+        except Exception as e:
+            logger.warning(f"Backfill hiba event_id={t['event_id']}: {e}")
+    logger.info(f"Production API backfill kész: {ok}/{len(tips)} tipp feltöltve → {PROD_API_URL}")
+
+
 def main():
     logger.info("Sports Bot indul...")
+    backfill_prod_api()
     app = (
         Application.builder()
         .token(TELEGRAM_BOT_TOKEN)

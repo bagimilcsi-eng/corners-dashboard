@@ -3,32 +3,40 @@ import { Pool } from "pg";
 
 const router = Router();
 
+const dbUrl = process.env.DATABASE_URL || "";
+const isLocal = dbUrl.includes("helium") || dbUrl.includes("localhost") || dbUrl.includes("sslmode=disable");
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("localhost")
-    ? false
-    : { rejectUnauthorized: false },
+  connectionString: dbUrl,
+  ssl: isLocal ? false : { rejectUnauthorized: false },
 });
 
 async function initDb() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS tips (
-      event_id BIGINT PRIMARY KEY,
-      home VARCHAR(255) NOT NULL,
-      away VARCHAR(255) NOT NULL,
-      league VARCHAR(255) NOT NULL,
-      predicted VARCHAR(10) NOT NULL,
-      predicted_name VARCHAR(255) NOT NULL,
-      odds NUMERIC(6,2),
-      start_timestamp BIGINT NOT NULL,
-      sent_at BIGINT NOT NULL,
-      result VARCHAR(10) DEFAULT NULL,
-      actual_winner VARCHAR(10) DEFAULT NULL
-    )
-  `);
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS tips (
+        event_id BIGINT PRIMARY KEY,
+        home VARCHAR(255) NOT NULL,
+        away VARCHAR(255) NOT NULL,
+        league VARCHAR(255) NOT NULL,
+        predicted VARCHAR(10) NOT NULL,
+        predicted_name VARCHAR(255) NOT NULL,
+        odds NUMERIC(6,2),
+        start_timestamp BIGINT NOT NULL,
+        sent_at BIGINT NOT NULL,
+        result VARCHAR(10) DEFAULT NULL,
+        actual_winner VARCHAR(10) DEFAULT NULL
+      )
+    `);
+    const { rows } = await client.query("SELECT COUNT(*) FROM tips");
+    console.log(`DB connected. Tips in database: ${rows[0].count}`);
+  } finally {
+    client.release();
+  }
 }
 
-initDb().catch(console.error);
+initDb().catch((err) => console.error("DB init error:", err.message));
 
 interface Tip {
   event_id: number;
@@ -50,8 +58,8 @@ async function loadTips(): Promise<Tip[]> {
       "SELECT * FROM tips ORDER BY sent_at DESC"
     );
     return rows;
-  } catch (err) {
-    console.error("DB loadTips error:", err);
+  } catch (err: any) {
+    console.error("DB loadTips error:", err.message);
     return [];
   }
 }
@@ -89,8 +97,6 @@ router.get("/tips/stats", async (_req, res) => {
     else leagueMap[t.league].pending++;
   }
 
-  const recent = [...tips].slice(0, 20);
-
   res.json({
     total: tips.length,
     settled: settled.length,
@@ -100,8 +106,43 @@ router.get("/tips/stats", async (_req, res) => {
     winRate: Math.round(winRate * 10) / 10,
     roi: Math.round(roi * 10) / 10,
     leagueStats: leagueMap,
-    recentTips: recent,
+    recentTips: [...tips].slice(0, 20),
   });
+});
+
+router.post("/tips", async (req, res) => {
+  const { event_id, home, away, league, predicted, predicted_name, odds, start_timestamp, sent_at } = req.body;
+  if (!event_id || !home || !away || !league || !predicted || !predicted_name || !start_timestamp || !sent_at) {
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+  try {
+    await pool.query(
+      `INSERT INTO tips (event_id, home, away, league, predicted, predicted_name, odds, start_timestamp, sent_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (event_id) DO NOTHING`,
+      [event_id, home, away, league, predicted, predicted_name, odds ?? null, start_timestamp, sent_at]
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("POST /tips error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch("/tips/:event_id", async (req, res) => {
+  const { event_id } = req.params;
+  const { result, actual_winner } = req.body;
+  if (!result) return res.status(400).json({ error: "Missing result" });
+  try {
+    await pool.query(
+      "UPDATE tips SET result=$1, actual_winner=$2 WHERE event_id=$3",
+      [result, actual_winner ?? null, event_id]
+    );
+    res.json({ ok: true });
+  } catch (err: any) {
+    console.error("PATCH /tips error:", err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;
