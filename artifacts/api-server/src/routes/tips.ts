@@ -4,7 +4,17 @@ import path from "path";
 
 const router = Router();
 
-const TIPS_FILE = path.resolve(process.cwd(), "../../tips_history.json");
+const TIPS_FILE_CANDIDATES = [
+  path.resolve(process.cwd(), "tips_history.json"),
+  path.resolve(process.cwd(), "../../tips_history.json"),
+];
+
+function findTipsFile(): string {
+  for (const candidate of TIPS_FILE_CANDIDATES) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return TIPS_FILE_CANDIDATES[0];
+}
 
 interface Tip {
   event_id: number;
@@ -22,7 +32,7 @@ interface Tip {
 
 function loadTips(): Tip[] {
   try {
-    const raw = fs.readFileSync(TIPS_FILE, "utf-8");
+    const raw = fs.readFileSync(findTipsFile(), "utf-8");
     return JSON.parse(raw) as Tip[];
   } catch {
     return [];
