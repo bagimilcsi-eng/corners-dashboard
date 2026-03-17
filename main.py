@@ -44,17 +44,27 @@ def sofascore_fetch_events(target_date: str) -> list:
         return []
 
 
-def sofascore_fetch_h2h(event_id: int) -> list:
-    """H2H meccsek lekérése egy meccs ID alapján."""
-    url = f"https://www.sofascore.com/api/v1/event/{event_id}/h2h/events"
+def sofascore_fetch_h2h(event_id: int) -> tuple[int, int]:
+    """
+    H2H összesítő lekérése egy meccs ID alapján.
+    Visszaad: (home_wins, total) a teamDuel adatokból.
+    """
+    url = f"https://www.sofascore.com/api/v1/event/{event_id}/h2h"
     try:
-        resp = requests.get(url, headers=SOFASCORE_HEADERS, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        return data.get("events", [])
+        resp = requests.get(url, headers=SOFASCORE_HEADERS, timeout=8)
+        if resp.status_code != 200:
+            return 0, 0
+        duel = resp.json().get("teamDuel")
+        if not duel:
+            return 0, 0
+        home_wins = duel.get("homeWins", 0)
+        away_wins = duel.get("awayWins", 0)
+        draws = duel.get("draws", 0)
+        total = home_wins + away_wins + draws
+        return home_wins, total
     except Exception as e:
         logger.error(f"H2H fetch hiba: {e}")
-        return []
+        return 0, 0
 
 
 def sofascore_fetch_odds(event_id: int) -> dict | None:
@@ -145,22 +155,6 @@ def format_event_line(event: dict) -> str:
 #  TIPP ELEMZŐ LOGIKA
 # ─────────────────────────────────────────────
 
-def analyze_h2h_events(h2h_events: list, home_name: str) -> tuple[int, int]:
-    """H2H elemzés: (home győzelmek, összes befejezett meccs)."""
-    home_wins = 0
-    total = 0
-    for e in h2h_events:
-        if e.get("status", {}).get("type", "").lower() != "finished":
-            continue
-        hs = (e.get("homeScore", {}).get("current") or 0)
-        as_ = (e.get("awayScore", {}).get("current") or 0)
-        h = e.get("homeTeam", {}).get("name", "")
-        total += 1
-        if home_name.lower() in h.lower() and hs > as_:
-            home_wins += 1
-        elif home_name.lower() not in h.lower() and as_ > hs:
-            home_wins += 1
-    return home_wins, total
 
 
 def get_player_recent_form(player_name: str, all_events: list, last: int = 10) -> tuple[int, int]:
@@ -245,8 +239,7 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
     # H2H
     h2h_home_wins, h2h_total = 0, 0
     if event_id:
-        h2h_events = sofascore_fetch_h2h(event_id)
-        h2h_home_wins, h2h_total = analyze_h2h_events(h2h_events, home)
+        h2h_home_wins, h2h_total = sofascore_fetch_h2h(event_id)
 
     # Forma
     home_w, home_t = get_player_recent_form(home, all_events)
