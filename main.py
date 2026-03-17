@@ -896,12 +896,78 @@ async def send_startup_tips(app):
 
 
 # ─────────────────────────────────────────────
+#  FOLYAMATOS TIPP FIGYELŐ (15 percenként)
+# ─────────────────────────────────────────────
+
+SCAN_INTERVAL_SEC = 900  # 15 perc
+
+
+async def scan_and_send_tips(context):
+    """15 percenként fut: ha új erős tipp van, azonnal küldi Telegramra."""
+    if not TELEGRAM_CHAT_ID:
+        return
+
+    now_ts = int(datetime.utcnow().timestamp())
+    horizon_ts = now_ts + 12 * 3600  # következő 12 óra
+
+    today = date.today().isoformat()
+    events = sofascore_fetch_events(today)
+
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    events += sofascore_fetch_events(tomorrow)
+
+    upcoming = [
+        e for e in events
+        if is_allowed(e)
+        and e.get("status", {}).get("type", "").lower() == "notstarted"
+        and now_ts <= e.get("startTimestamp", 0) <= horizon_ts
+    ]
+
+    if not upcoming:
+        return
+
+    already_sent_ids = {t["event_id"] for t in load_tips()}
+
+    new_tips_sent = 0
+    for event in upcoming:
+        event_id = event.get("id")
+        if event_id and event_id in already_sent_ids:
+            continue
+        try:
+            msg, tip_odds, tip_meta = build_tip_message(event, events)
+            if msg is None:
+                continue
+            await context.bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=msg,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            if tip_meta:
+                save_tip_record(tip_meta)
+                already_sent_ids.add(event_id)
+            new_tips_sent += 1
+            logger.info(f"Automatikus tipp elküldve: event_id={event_id}")
+        except Exception as e:
+            logger.error(f"Automatikus tipp hiba: {e}")
+
+    if new_tips_sent > 0:
+        logger.info(f"Scan kész: {new_tips_sent} új tipp elküldve.")
+    else:
+        logger.debug("Scan kész: nincs új tipp.")
+
+
+# ─────────────────────────────────────────────
 #  FŐPROGRAM
 # ─────────────────────────────────────────────
 
 def main():
     logger.info("Sports Bot indul...")
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(send_startup_tips).build()
+    app = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .post_init(send_startup_tips)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
@@ -917,6 +983,17 @@ def main():
     # Labdarúgás
     app.add_handler(CommandHandler("live", cmd_live))
     app.add_handler(CommandHandler("mai", cmd_mai_foci))
+
+    # Folyamatos figyelő: 15 percenként ellenőrzi az új tippeket
+    if app.job_queue:
+        app.job_queue.run_repeating(
+            scan_and_send_tips,
+            interval=SCAN_INTERVAL_SEC,
+            first=300,  # első futás 5 perccel az indítás után
+        )
+        logger.info(f"Automatikus tipp figyelő bekapcsolva ({SCAN_INTERVAL_SEC}s).")
+    else:
+        logger.warning("JobQueue nem elérhető – automatikus figyelő kikapcsolva.")
 
     logger.info("Bot fut. Asztalitenisz: SofaScore API (Setka Cup + Czech Liga)")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
