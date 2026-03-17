@@ -23,6 +23,9 @@ API_HEADERS = {
     "x-apisports-key": SPORTS_API_KEY
 }
 
+# Csak ezek a ligák jelennek meg a tippekben és az élő nézőben
+ALLOWED_LEAGUE_KEYWORDS = ["setka", "czech liga", "czech cup", "cseh"]
+
 
 # ─────────────────────────────────────────────
 #  ASZTALITENISZ API FÜGGVÉNYEK
@@ -42,6 +45,12 @@ def tt_fetch_games(target_date: str = None, live: bool = False) -> list:
     except Exception as e:
         logger.error(f"TT games hiba: {e}")
         return []
+
+
+def is_allowed_league(game: dict) -> bool:
+    """Csak a Setka Cup és Cseh Liga Kupa meccseit engedi át."""
+    league_name = (game.get("league", {}).get("name") or "").lower()
+    return any(kw in league_name for kw in ALLOWED_LEAGUE_KEYWORDS)
 
 
 def tt_fetch_h2h(player1_id: int, player2_id: int) -> list:
@@ -258,32 +267,47 @@ def build_tip_message(game: dict) -> str | None:
 # ─────────────────────────────────────────────
 
 async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Mai asztalitenisz meccsek elemzése és tippek."""
-    await update.message.reply_text("🔍 Asztalitenisz meccsek elemzése folyamatban...")
+    """Setka Cup és Cseh Liga Kupa meccsek elemzése és tippek."""
+    await update.message.reply_text(
+        "🔍 *Setka Cup & Cseh Liga Kupa* — meccsek elemzése...",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
-    today = date.today().isoformat()
-    games = tt_fetch_games(target_date=today)
+    from datetime import timedelta
+    games = []
+    used_date = None
+    for delta in [0, 1]:
+        check_date = (date.today() + timedelta(days=delta)).isoformat()
+        raw = tt_fetch_games(target_date=check_date)
+        filtered = [g for g in raw if is_allowed_league(g)]
+        if filtered:
+            games = filtered
+            used_date = check_date
+            break
 
-    # Ha nincs mai meccs, holnapot próbáljuk
     if not games:
-        from datetime import timedelta
-        tomorrow = (date.today() + timedelta(days=1)).isoformat()
-        games = tt_fetch_games(target_date=tomorrow)
-        if games:
-            await update.message.reply_text(f"ℹ️ Ma nincs meccs, holnapi ({tomorrow}) meccseket elemzem...")
-        else:
-            await update.message.reply_text("❌ Nem találtam közelgő asztalitenisz meccseket.")
-            return
+        await update.message.reply_text(
+            "❌ Nem találtam Setka Cup vagy Cseh Liga Kupa meccseket ma/holnap.\n\n"
+            "Próbáld a /tt\\_ligak parancsot, hogy lásd mi érhető el.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
 
-    # Csak a nem befejezett meccseket elemezzük
+    if used_date != date.today().isoformat():
+        await update.message.reply_text(f"ℹ️ Ma nincs meccs — holnapi ({used_date}) meccseket elemzem...")
+
     upcoming = [g for g in games if g.get("status", {}).get("short", "") in ("NS", "TBD", "")]
     if not upcoming:
-        upcoming = games[:5]
+        upcoming = games
 
-    await update.message.reply_text(f"📊 {len(upcoming[:8])} meccs elemzése... (kérlek várj)")
+    league_names = sorted({g.get("league", {}).get("name", "?") for g in upcoming})
+    await update.message.reply_text(
+        f"📊 *{len(upcoming[:10])} meccs* elemzése: {', '.join(league_names)}\n_(kérlek várj...)_",
+        parse_mode=ParseMode.MARKDOWN
+    )
 
     sent = 0
-    for game in upcoming[:8]:
+    for game in upcoming[:10]:
         try:
             msg = build_tip_message(game)
             if msg:
@@ -305,16 +329,20 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_tt_elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Éppen zajló asztalitenisz meccsek."""
-    await update.message.reply_text("🔍 Élő asztalitenisz meccsek keresése...")
-    games = tt_fetch_games(live=True)
+    """Éppen zajló Setka Cup / Cseh Liga Kupa meccsek."""
+    await update.message.reply_text("🔍 Élő Setka Cup / Cseh Liga Kupa meccsek keresése...")
+    all_games = tt_fetch_games(live=True)
+    games = [g for g in all_games if is_allowed_league(g)]
 
     if not games:
-        await update.message.reply_text("🏓 Jelenleg nincs élő asztalitenisz meccs.")
+        msg = "🏓 Jelenleg nincs élő Setka Cup vagy Cseh Liga Kupa meccs."
+        if all_games:
+            msg += f"\n_(Más ligában {len(all_games)} élő meccs van.)_"
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
         return
 
-    lines = [f"🔴 *Élő asztalitenisz meccsek ({len(games)})*\n"]
-    for g in games[:10]:
+    lines = [f"🔴 *Élő meccsek — Setka Cup / Cseh Liga Kupa ({len(games)})*\n"]
+    for g in games[:15]:
         players = g.get("players", {})
         home = players.get("home", {}).get("name", "?")
         away = players.get("away", {}).get("name", "?")
@@ -324,6 +352,30 @@ async def cmd_tt_elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         league = g.get("league", {}).get("name", "")
         lines.append(f"🏓 *{home}* {h_sets}–{a_sets} *{away}* — _{league}_")
 
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+
+
+async def cmd_tt_ligak(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mai összes asztalitenisz liga listázása (segít ellenőrizni a pontos neveket)."""
+    await update.message.reply_text("🔍 Mai ligák lekérése...")
+    today = date.today().isoformat()
+    games = tt_fetch_games(target_date=today)
+
+    if not games:
+        await update.message.reply_text("❌ Ma nincsenek asztalitenisz meccsek az API-ban.")
+        return
+
+    league_counts: dict[str, int] = {}
+    for g in games:
+        name = g.get("league", {}).get("name", "Ismeretlen")
+        league_counts[name] = league_counts.get(name, 0) + 1
+
+    lines = [f"📋 *Mai asztalitenisz ligák ({today})*\n"]
+    for league_name, count in sorted(league_counts.items(), key=lambda x: -x[1]):
+        allowed = "✅" if is_allowed_league({"league": {"name": league_name}}) else "⬜"
+        lines.append(f"{allowed} {league_name} ({count} meccs)")
+
+    lines.append("\n✅ = aktív szűrőben van (tippek megjelennek)\n⬜ = kiszűrve")
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
 
 
@@ -417,10 +469,11 @@ def format_fixture(fixture: dict) -> str:
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         "👋 *Sports Bot — Parancsok*\n\n"
-        "🏓 *Asztalitenisz:*\n"
+        "🏓 *Asztalitenisz (Setka Cup & Cseh Liga Kupa):*\n"
         "/tt\\_tippek — Mai meccsek elemzése és tippek\n"
-        "/tt\\_elo — Élő asztalitenisz meccsek\n"
-        "/tt\\_ranglista — Világranglista Top 15\n\n"
+        "/tt\\_elo — Élő meccsek\n"
+        "/tt\\_ranglista — Világranglista Top 15\n"
+        "/tt\\_ligak — Mai ligák listája (szűrő ellenőrzés)\n\n"
         "⚽ *Labdarúgás:*\n"
         "/live — Élő futballmeccsek\n"
         "/mai — Mai futballmeccsek\n"
@@ -489,6 +542,7 @@ def main():
     app.add_handler(CommandHandler("tt_tippek", cmd_tt_tippek))
     app.add_handler(CommandHandler("tt_elo", cmd_tt_elo))
     app.add_handler(CommandHandler("tt_ranglista", cmd_tt_ranglista))
+    app.add_handler(CommandHandler("tt_ligak", cmd_tt_ligak))
 
     # Labdarúgás parancsok
     app.add_handler(CommandHandler("live", cmd_live))
