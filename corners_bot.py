@@ -1,5 +1,3 @@
-import sys
-sys.exit(0)
 import os
 import time
 import logging
@@ -24,9 +22,20 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 SOFASCORE_BASE = "https://www.sofascore.com/api/v1"
 SOFASCORE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Referer": "https://www.sofascore.com/",
     "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Origin": "https://www.sofascore.com",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-fetch-dest": "empty",
+    "sec-fetch-mode": "cors",
+    "sec-fetch-site": "same-origin",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
 }
 
 CORNER_LINE = 9.5
