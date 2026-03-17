@@ -847,11 +847,17 @@ async def send_startup_tips(app):
         parse_mode=ParseMode.MARKDOWN,
     )
 
+    already_sent_ids = {t["event_id"] for t in load_tips()}
+
     MAX_STARTUP_TIPS = 20
     sent = 0
     for event in upcoming_8h:
         if sent >= MAX_STARTUP_TIPS:
             break
+        event_id = event.get("id")
+        if event_id and event_id in already_sent_ids:
+            logger.info(f"Már elküldött tipp, kihagyva: event_id={event_id}")
+            continue
         try:
             msg, tip_odds, tip_meta = build_tip_message(event, events)
             if msg is None:
