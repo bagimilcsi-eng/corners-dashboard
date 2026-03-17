@@ -2,7 +2,36 @@
 
 ## Overview
 
-pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
+pnpm workspace monorepo using TypeScript + a Python Telegram sports bot.
+
+## Sports Telegram Bot
+
+A Python bot that fetches live football/soccer data from [api-sports.io](https://api-sports.io) and sends it to Telegram.
+
+- **Entry point**: `main.py`
+- **Workflow**: "Sports Telegram Bot" — runs `python main.py`
+- **Required secrets**: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `SPORTS_API_KEY`
+
+### Bot Commands
+
+- `/start` or `/help` — Show available commands
+- `/live` — Currently live matches
+- `/today` — Today's scheduled matches
+- `/standings` — Premier League top 10 standings (league 39, season 2024)
+- `/scorers` — Premier League top 5 scorers
+
+### Sports API
+
+Uses [api-football.com](https://www.api-football.com) v3 (`https://v3.football.api-sports.io`).
+Default league: Premier League (ID: 39), season: 2024.
+Change `league_id` and `season` params in `main.py` to switch leagues.
+
+### Key packages (Python)
+
+- `python-telegram-bot` — Telegram bot framework
+- `requests` — HTTP client for Sports API calls
+- `schedule` — Optional scheduled task support
+- `python-dotenv` — Local `.env` support
 
 ## Stack
 
