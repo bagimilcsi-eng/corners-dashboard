@@ -299,8 +299,8 @@ def resolve_pending_tips(tips: list) -> list:
     for t in tips:
         if t.get("result") is not None:
             continue
-        # Csak 90 perccel a meccs után próbáljuk meg
-        if t.get("start_timestamp", 0) + 90 * 60 > now_ts:
+        # Csak 45 perccel a meccs után próbáljuk meg (asztalitenisz ~20-40 perc)
+        if t.get("start_timestamp", 0) + 45 * 60 > now_ts:
             continue
         actual = fetch_match_result(t["event_id"])
         if actual is not None:
@@ -911,7 +911,7 @@ async def check_results_and_notify(context):
     for t in tips:
         if t.get("result") is not None:
             continue
-        if t.get("start_timestamp", 0) + 90 * 60 > now_ts:
+        if t.get("start_timestamp", 0) + 45 * 60 > now_ts:
             continue
 
         actual = fetch_match_result(t["event_id"])
