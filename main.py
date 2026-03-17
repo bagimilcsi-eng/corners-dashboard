@@ -896,6 +896,63 @@ async def send_startup_tips(app):
 
 
 # ─────────────────────────────────────────────
+#  EREDMÉNY FIGYELŐ ÉS ÉRTESÍTŐ
+# ─────────────────────────────────────────────
+
+async def check_results_and_notify(context):
+    """10 percenként ellenőrzi a lezárt meccseket és Telegramra küldi az eredményt."""
+    if not TELEGRAM_CHAT_ID:
+        return
+
+    tips = load_tips()
+    now_ts = int(datetime.utcnow().timestamp())
+    changed = False
+
+    for t in tips:
+        if t.get("result") is not None:
+            continue
+        if t.get("start_timestamp", 0) + 90 * 60 > now_ts:
+            continue
+
+        actual = fetch_match_result(t["event_id"])
+        if actual is None:
+            continue
+
+        t["actual_winner"] = actual
+        t["result"] = "win" if actual == t["predicted"] else "loss"
+        changed = True
+
+        won = t["result"] == "win"
+        icon = "✅" if won else "❌"
+        result_text = "NYERT" if won else "VESZETT"
+        odds_text = f"{t['odds']:.2f}" if t.get("odds") else "N/A"
+        predicted_name = t.get("predicted_name", t.get("predicted", "?"))
+
+        msg = (
+            f"{icon} *Eredmény — {result_text}!*\n\n"
+            f"🏓 {t['home']} vs {t['away']}\n"
+            f"🏆 {t.get('league', '?')}\n"
+            f"🎯 Tippünk: *{predicted_name}*\n"
+            f"📊 Szorzó: {odds_text}\n"
+            f"🏆 Tényleges győztes: {t['home'] if actual == 'home' else t['away']}"
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=msg,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            logger.info(f"Eredmény értesítő elküldve: event_id={t['event_id']}, result={t['result']}")
+        except Exception as e:
+            logger.error(f"Eredmény értesítő hiba: {e}")
+
+    if changed:
+        with open(TIPS_FILE, "w", encoding="utf-8") as f:
+            json.dump(tips, f, ensure_ascii=False, indent=2)
+
+
+# ─────────────────────────────────────────────
 #  FOLYAMATOS TIPP FIGYELŐ (15 percenként)
 # ─────────────────────────────────────────────
 
@@ -991,7 +1048,13 @@ def main():
             interval=SCAN_INTERVAL_SEC,
             first=300,  # első futás 5 perccel az indítás után
         )
+        app.job_queue.run_repeating(
+            check_results_and_notify,
+            interval=600,  # 10 percenként
+            first=120,     # első futás 2 perccel az indítás után
+        )
         logger.info(f"Automatikus tipp figyelő bekapcsolva ({SCAN_INTERVAL_SEC}s).")
+        logger.info("Eredmény értesítő bekapcsolva (600s).")
     else:
         logger.warning("JobQueue nem elérhető – automatikus figyelő kikapcsolva.")
 
