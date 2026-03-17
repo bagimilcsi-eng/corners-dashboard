@@ -5,9 +5,9 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatOdds(odds: number | null): string {
-  if (odds === null) return "-";
-  return odds.toFixed(2);
+export function formatOdds(odds: number | string | null): string {
+  if (odds === null || odds === undefined) return "-";
+  return Number(odds).toFixed(2);
 }
 
 export function formatPercentage(value: number): string {
