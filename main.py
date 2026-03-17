@@ -4,7 +4,10 @@ import logging
 import requests
 import psycopg2
 import psycopg2.extras
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+HU_TZ = ZoneInfo("Europe/Budapest")
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.constants import ParseMode
@@ -153,8 +156,8 @@ def format_event_line(event: dict) -> str:
     ts = event.get("startTimestamp")
     time_str = ""
     if ts:
-        dt = datetime.utcfromtimestamp(ts)
-        time_str = f" [{dt.strftime('%H:%M')} UTC]"
+        dt = datetime.fromtimestamp(ts, tz=HU_TZ)
+        time_str = f" [{dt.strftime('%H:%M')}]"
     score_part = f" {score}" if score else ""
     return f"🏓 {home} vs {away}{score_part}{time_str} — _{league}_"
 
@@ -422,7 +425,7 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
     league = event.get("tournament", {}).get("name", "?")
     category = event.get("tournament", {}).get("category", {}).get("name", "")
     ts = event.get("startTimestamp")
-    time_str = datetime.utcfromtimestamp(ts).strftime("%H:%M UTC") if ts else "?"
+    time_str = datetime.fromtimestamp(ts, tz=HU_TZ).strftime("%H:%M") if ts else "?"
 
     # Szorzók lekérése
     odds = sofascore_fetch_odds(event_id) if event_id else None
