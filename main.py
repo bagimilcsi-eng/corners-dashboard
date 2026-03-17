@@ -258,6 +258,10 @@ def build_tip_message(event: dict, all_events: list) -> tuple[str | None, float 
         away_w, away_t,
     )
 
+    # Bizonytalan tipp → nem küldjük
+    if winner == "uncertain":
+        return None, None
+
     # Szorzó meghatározása a tippelt oldalhoz
     tip_odds = None
     if odds:
@@ -604,12 +608,108 @@ async def cmd_mai_foci(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─────────────────────────────────────────────
+#  AUTOMATIKUS STARTUP TIPPEK
+# ─────────────────────────────────────────────
+
+async def send_startup_tips(app):
+    """Bot indításkor automatikusan elküldi a következő 8 óra tippjeit a chat_id-re."""
+    if not TELEGRAM_CHAT_ID:
+        logger.warning("TELEGRAM_CHAT_ID nincs beállítva – startup tippek nem küldhetők.")
+        return
+
+    logger.info("Startup tippek generálása (következő 8 óra)...")
+    now_ts = int(datetime.utcnow().timestamp())
+    horizon_ts = now_ts + 8 * 3600  # 8 óra előre
+
+    today = date.today().isoformat()
+    events = sofascore_fetch_events(today)
+
+    # Ha a horizont átnyúlik a következő napra, adjuk hozzá holnap meccseit is
+    if horizon_ts > int(datetime(
+        datetime.utcnow().year,
+        datetime.utcnow().month,
+        datetime.utcnow().day, 23, 59, 59
+    ).timestamp()):
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        events += sofascore_fetch_events(tomorrow)
+
+    upcoming_8h = [
+        e for e in events
+        if is_allowed(e)
+        and e.get("status", {}).get("type", "").lower() == "notstarted"
+        and now_ts <= e.get("startTimestamp", 0) <= horizon_ts
+    ]
+    upcoming_8h.sort(key=lambda e: e.get("startTimestamp", 0))
+
+    if not upcoming_8h:
+        await app.bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text="ℹ️ *Startup tippek:* A következő 8 órában nincs Setka Cup / Czech Liga meccs.",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+
+    league_names = list({
+        e.get("tournament", {}).get("name", "?") for e in upcoming_8h
+    })
+    await app.bot.send_message(
+        chat_id=TELEGRAM_CHAT_ID,
+        text=(
+            f"🤖 *Bot elindult — Automatikus tippek*\n"
+            f"📅 Következő 8 óra tippjei ({len(upcoming_8h)} meccs elemzése)\n"
+            f"📍 {', '.join(league_names[:3])}\n"
+            f"🔕 _(Csak Erős/Közepes, min. {MIN_ODDS:.2f}+ szorzó)_"
+        ),
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+    MAX_STARTUP_TIPS = 20
+    sent = 0
+    for event in upcoming_8h:
+        if sent >= MAX_STARTUP_TIPS:
+            break
+        try:
+            msg, tip_odds = build_tip_message(event, events)
+            if msg is None:
+                continue
+            await app.bot.send_message(
+                chat_id=TELEGRAM_CHAT_ID,
+                text=msg,
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            sent += 1
+        except Exception as e:
+            logger.error(f"Startup tipp hiba: {e}")
+
+    if sent == 0:
+        await app.bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=(
+                f"❌ Nincs megfelelő tipp a következő 8 órában.\n"
+                f"_(Minden meccs kiszűrve: bizonytalan statisztika vagy szorzó < {MIN_ODDS:.2f})_"
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    else:
+        await app.bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=(
+                f"✅ *{sent} startup tipp elküldve!*\n"
+                f"⚠️ _Statisztikai elemzésen alapul. Felelősen fogadj!_"
+            ),
+            parse_mode=ParseMode.MARKDOWN,
+        )
+
+    logger.info(f"Startup tippek kész: {sent} tipp elküldve.")
+
+
+# ─────────────────────────────────────────────
 #  FŐPROGRAM
 # ─────────────────────────────────────────────
 
 def main():
     logger.info("Sports Bot indul...")
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(send_startup_tips).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
