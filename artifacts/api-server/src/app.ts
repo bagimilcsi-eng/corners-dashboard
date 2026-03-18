@@ -13,6 +13,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api", router);
 app.use("/api-server/api", router);
 
+app.get("/ping", (_req, res) => {
+  res.status(200).send("pong");
+});
+app.get("/api-server/ping", (_req, res) => {
+  res.status(200).send("pong");
+});
+
 const botFiles: Record<string, string> = {
   "main.py": path.resolve(process.cwd(), "../../main.py"),
   "corners_bot.py": path.resolve(process.cwd(), "../../corners_bot.py"),
