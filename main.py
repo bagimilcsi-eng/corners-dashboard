@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import logging
 import requests
@@ -6,6 +7,10 @@ import psycopg2
 import psycopg2.extras
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+if os.environ.get("TT_BOT_DISABLED", "").lower() in ("1", "true", "yes"):
+    print("TT_BOT_DISABLED=true — bot nem indul el ezen a környezeten.")
+    sys.exit(0)
 
 HU_TZ = ZoneInfo("Europe/Budapest")
 from telegram import Update
