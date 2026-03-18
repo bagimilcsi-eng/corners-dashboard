@@ -1,14 +1,26 @@
 import os
+import asyncio
 import time
 import logging
 import requests
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, date, timedelta
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Bot
 from telegram.constants import ParseMode
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+import sys
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+if os.environ.get("CORNERS_BOT_DISABLED", "").lower() in ("1", "true", "yes"):
+    print("CORNERS_BOT_DISABLED beállítva — bot nem indul el.")
+    sys.exit(0)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -379,7 +391,7 @@ def format_result_msg(tip: dict, actual: int, result: str) -> str:
 #  SCHEDULER FELADATOK
 # ─────────────────────────────────────────────
 
-async def scan_and_send(context):
+async def scan_and_send(bot: Bot):
     if not CORNERS_CHAT_ID:
         logger.warning("CORNERS_CHAT_ID nincs beállítva, kihagyva")
         return
@@ -412,7 +424,7 @@ async def scan_and_send(context):
         msg = format_tip_msg(tip)
 
         try:
-            await context.bot.send_message(
+            await bot.send_message(
                 chat_id=CORNERS_CHAT_ID,
                 text=msg,
                 parse_mode=ParseMode.MARKDOWN,
@@ -425,7 +437,7 @@ async def scan_and_send(context):
     logger.info(f"Szöglet scan kész, {sent} új tipp elküldve")
 
 
-async def check_results(context):
+async def check_results(bot: Bot):
     tips = load_corner_tips()
     now_ts = int(datetime.utcnow().timestamp())
 
@@ -445,14 +457,14 @@ async def check_results(context):
             result = "win" if actual < t["line"] else "loss"
 
         update_corner_result(t["event_id"], result, actual)
-        logger.info(f"Eredmény frissítve: {t['event_id']} → {result} (szögletek: {actual})")
+        logger.info(f"Eredmény frissítve: {t['event_id']} -> {result} (szögletek: {actual})")
 
         if not CORNERS_CHAT_ID:
             continue
 
         msg = format_result_msg(t, actual, result)
         try:
-            await context.bot.send_message(
+            await bot.send_message(
                 chat_id=CORNERS_CHAT_ID,
                 text=msg,
                 parse_mode=ParseMode.MARKDOWN,
@@ -462,99 +474,28 @@ async def check_results(context):
 
 
 # ─────────────────────────────────────────────
-#  TELEGRAM PARANCSOK
+#  MAIN — polling nélkül, csak APScheduler
 # ─────────────────────────────────────────────
 
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = (
-        "⚽ *Szöglet Bot — Parancsok*\n\n"
-        "/szoglet\\_tippek — Mai szöglet tippek\n"
-        "/szoglet\\_stat — Statisztikák\n"
-        "/help — Súgó"
-    )
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
-
-
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await cmd_start(update, context)
-
-
-async def cmd_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tips = load_corner_tips()
-    today_start = int(datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
-    today_tips = [t for t in tips if t.get("start_timestamp", 0) >= today_start]
-
-    if not today_tips:
-        await update.message.reply_text("⚽ Ma még nincs szöglet tipp.")
-        return
-
-    lines = [f"⚽ *Mai szöglet tippek ({len(today_tips)} db)*\n"]
-    for t in today_tips:
-        start_dt = datetime.utcfromtimestamp(t["start_timestamp"]) + timedelta(hours=1)
-        time_str = start_dt.strftime("%H:%M")
-        tip_icon = "⬆️" if t["tip"] == "over" else "⬇️"
-        tip_label = "OVER" if t["tip"] == "over" else "UNDER"
-        res = ""
-        if t.get("result") == "win":
-            res = " ✅"
-        elif t.get("result") == "loss":
-            res = " ❌"
-        lines.append(
-            f"{tip_icon} *{t['home']}* vs *{t['away']}* ({time_str})\n"
-            f"   🏆 {t['league']}\n"
-            f"   → {tip_label} {t['line']} | Várható: {t['expected_corners']}{res}\n"
-        )
-
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
-
-
-async def cmd_stat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tips = load_corner_tips()
-    settled = [t for t in tips if t.get("result") is not None]
-    pending = [t for t in tips if t.get("result") is None]
-    wins = sum(1 for t in settled if t["result"] == "win")
-    losses = len(settled) - wins
-    win_rate = (wins / len(settled) * 100) if settled else 0
-
-    over_tips = [t for t in settled if t["tip"] == "over"]
-    under_tips = [t for t in settled if t["tip"] == "under"]
-    over_wins = sum(1 for t in over_tips if t["result"] == "win")
-    under_wins = sum(1 for t in under_tips if t["result"] == "win")
-
-    lines = [
-        "📊 *Szöglet Bot Statisztika*\n",
-        f"🎯 Összes tipp: *{len(tips)}* ({len(settled)} lezárt, {len(pending)} folyamatban)",
-        f"✅ Nyert: *{wins}*",
-        f"❌ Veszett: *{losses}*",
-        f"📈 Nyerési arány: *{win_rate:.1f}%*\n",
-        f"⬆️ Over tippek: {len(over_tips)} db → {over_wins} nyert",
-        f"⬇️ Under tippek: {len(under_tips)} db → {under_wins} nyert",
-    ]
-
-    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
-
-
-# ─────────────────────────────────────────────
-#  MAIN
-# ─────────────────────────────────────────────
-
-def main():
+async def main():
     init_db()
 
-    app = Application.builder().token(CORNERS_BOT_TOKEN).build()
+    bot = Bot(token=CORNERS_BOT_TOKEN)
 
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(CommandHandler("szoglet_tippek", cmd_tippek))
-    app.add_handler(CommandHandler("szoglet_stat", cmd_stat))
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(scan_and_send, "interval", seconds=1800, args=[bot], next_run_time=datetime.utcnow())
+    scheduler.add_job(check_results, "interval", seconds=900, args=[bot], next_run_time=datetime.utcnow() + timedelta(seconds=120))
+    scheduler.start()
 
-    jq = app.job_queue
-    jq.run_repeating(scan_and_send, interval=1800, first=60)
-    jq.run_repeating(check_results, interval=900, first=120)
+    logger.info("⚽ Szöglet Bot indul... (polling nélkül, csak üzenetküldés)")
 
-    logger.info("⚽ Szöglet Bot indul...")
-    app.run_polling(drop_pending_updates=True)
+    try:
+        while True:
+            await asyncio.sleep(60)
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot leállítva.")
+        scheduler.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
