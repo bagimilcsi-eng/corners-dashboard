@@ -21,24 +21,24 @@ runButton = "Project"
 name = "Sports Telegram Bot"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python main.py"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash -c 'while true; do python main.py; echo \"Bot leállt, újraindítás 5 mp múlva...\"; sleep 5; done'"
 
 [[workflows.workflow]]
 name = "Football Corners Bot"
 mode = "sequential"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python corners_bot.py"
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash -c 'while true; do python corners_bot.py; echo \"Bot leállt, újraindítás 5 mp múlva...\"; sleep 5; done'"
 
 [[workflows.workflow]]
 name = "artifacts/stats-dashboard: web"
@@ -97,6 +97,19 @@ waitForPort = 8081
 [workflows.workflow.tasks.env]
 PORT = "8081"
 BASE_PATH = "/__mockup"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Sports Telegram Bot"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Football Corners Bot"
 
 [agent]
 stack = "PNPM_WORKSPACE"
