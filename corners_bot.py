@@ -507,36 +507,30 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 #  MAIN
 # ─────────────────────────────────────────────
 
-async def main():
+async def post_init(app: Application):
     init_db()
-
-    app = Application.builder().token(CORNERS_BOT_TOKEN).build()
     bot = app.bot
-
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scan_and_send, "interval", seconds=1800, args=[bot], next_run_time=datetime.utcnow())
     scheduler.add_job(check_results, "interval", seconds=900, args=[bot], next_run_time=datetime.utcnow() + timedelta(seconds=120))
     scheduler.start()
+    logger.info("⚽ Szöglet Bot indul... (SofaScore + parancsok)")
+
+
+def main():
+    app = (
+        Application.builder()
+        .token(CORNERS_BOT_TOKEN)
+        .post_init(post_init)
+        .build()
+    )
 
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("start", cmd_status))
     app.add_handler(CommandHandler("help", cmd_status))
 
-    logger.info("⚽ Szöglet Bot indul... (SofaScore + parancsok)")
-
-    await app.initialize()
-    await app.updater.start_polling()
-    await app.start()
-
-    try:
-        while True:
-            await asyncio.sleep(60)
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Bot leállítva.")
-        scheduler.shutdown()
-        await app.updater.stop()
-        await app.stop()
+    app.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
