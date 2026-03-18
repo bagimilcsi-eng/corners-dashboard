@@ -6,8 +6,9 @@ import requests
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, date, timedelta
-from telegram import Bot
+from telegram import Bot, Update
 from telegram.constants import ParseMode
+from telegram.ext import Application, CommandHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import sys
@@ -474,20 +475,58 @@ async def check_results(bot: Bot):
 
 
 # ─────────────────────────────────────────────
-#  MAIN — polling nélkül, csak APScheduler
+#  PARANCSOK
+# ─────────────────────────────────────────────
+
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tips = load_corner_tips()
+    settled = [t for t in tips if t.get("result") is not None]
+    wins = [t for t in settled if t.get("result") == "win"]
+    pending = [t for t in tips if t.get("result") is None]
+
+    win_rate = round(len(wins) / len(settled) * 100) if settled else 0
+
+    text = (
+        "✅ *Szöglet Bot fut!*\n\n"
+        f"📊 *Mai statisztika:*\n"
+        f"• Összes tipp: {len(tips)}\n"
+        f"• Lezárt: {len(settled)}\n"
+        f"• Győzelem: {len(wins)}\n"
+        f"• Találati arány: {win_rate}%\n"
+        f"• Függőben: {len(pending)}\n\n"
+        f"⚙️ *Beállítások:*\n"
+        f"• Vonal: {CORNER_LINE}\n"
+        f"• Over küszöb: {OVER_THRESHOLD}\n"
+        f"• Under küszöb: {UNDER_THRESHOLD}\n"
+        f"• Min. szorzó: {MIN_CORNER_ODDS}"
+    )
+    await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+
+# ─────────────────────────────────────────────
+#  MAIN
 # ─────────────────────────────────────────────
 
 async def main():
     init_db()
 
-    bot = Bot(token=CORNERS_BOT_TOKEN)
+    app = Application.builder().token(CORNERS_BOT_TOKEN).build()
+    bot = app.bot
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scan_and_send, "interval", seconds=1800, args=[bot], next_run_time=datetime.utcnow())
     scheduler.add_job(check_results, "interval", seconds=900, args=[bot], next_run_time=datetime.utcnow() + timedelta(seconds=120))
     scheduler.start()
 
-    logger.info("⚽ Szöglet Bot indul... (SofaScore, polling nélkül)")
+    app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("start", cmd_status))
+    app.add_handler(CommandHandler("help", cmd_status))
+
+    logger.info("⚽ Szöglet Bot indul... (SofaScore + parancsok)")
+
+    await app.initialize()
+    await app.updater.start_polling()
+    await app.start()
 
     try:
         while True:
@@ -495,6 +534,8 @@ async def main():
     except (KeyboardInterrupt, SystemExit):
         logger.info("Bot leállítva.")
         scheduler.shutdown()
+        await app.updater.stop()
+        await app.stop()
 
 
 if __name__ == "__main__":
