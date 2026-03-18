@@ -44,8 +44,32 @@ UNDER_THRESHOLD = 7.0
 RESULT_DELAY_MIN = 110
 MAX_FIXTURES_PER_SCAN = 30
 MIN_RECENT_MATCHES = 4
-API_DELAY_SEC = 1.0
+API_DELAY_SEC = 1.2
 MIN_CORNER_ODDS = 1.60
+
+ALLOWED_LEAGUE_IDS = {
+    39,   # Premier League
+    40,   # Championship
+    41,   # League One
+    42,   # League Two
+    61,   # Ligue 1
+    62,   # Ligue 2
+    78,   # Bundesliga
+    79,   # 2. Bundesliga
+    88,   # Eredivisie
+    94,   # Primeira Liga
+    135,  # Serie A
+    136,  # Serie B
+    140,  # La Liga
+    141,  # La Liga 2
+    144,  # Jupiler Pro League
+    179,  # Scottish Premiership
+    203,  # Süper Lig
+    2,    # UEFA Champions League
+    3,    # UEFA Europa League
+    4,    # UEFA Conference League
+    848,  # UEFA Champions League (kvali)
+}
 
 _corner_cache: dict = {}
 
@@ -361,10 +385,14 @@ async def scan_and_send(bot: Bot):
         if fx.get("fixture", {}).get("status", {}).get("short") == "NS"
     ]
 
-    logger.info(f"{len(upcoming)} közelgő meccs ma")
+    allowed = [
+        fx for fx in upcoming
+        if fx.get("league", {}).get("id") in ALLOWED_LEAGUE_IDS
+    ]
+    logger.info(f"{len(upcoming)} közelgő meccs ma, ebből {len(allowed)} engedélyezett ligában")
     sent = 0
 
-    for fixture in upcoming[:MAX_FIXTURES_PER_SCAN]:
+    for fixture in allowed[:MAX_FIXTURES_PER_SCAN]:
         fx_id = fixture.get("fixture", {}).get("id")
         if fx_id in existing_ids:
             continue
