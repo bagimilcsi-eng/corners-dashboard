@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 CORNERS_BOT_TOKEN = os.environ["CORNERS_BOT_TOKEN"]
 CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
 SOFASCORE_BASE = "https://www.sofascore.com/api/v1"
 SOFASCORE_HEADERS = {
