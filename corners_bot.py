@@ -392,15 +392,9 @@ def format_result_msg(tip: dict, actual: int, result: str) -> str:
 #  SCHEDULER FELADATOK
 # ─────────────────────────────────────────────
 
-async def scan_and_send(bot: Bot):
-    if not CORNERS_CHAT_ID:
-        logger.warning("CORNERS_CHAT_ID nincs beállítva, kihagyva")
-        return
-
-    logger.info("Szöglet tipp keresés indul...")
+def _sync_collect_tips() -> list:
     existing_ids = {t["event_id"] for t in load_corner_tips()}
     fixtures = fetch_today_fixtures()
-
     now_ts = int(datetime.utcnow().timestamp())
     upcoming = [
         e for e in fixtures
@@ -408,22 +402,51 @@ async def scan_and_send(bot: Bot):
         and e.get("startTimestamp", 0) > now_ts
         and e.get("startTimestamp", 0) < now_ts + 12 * 3600
     ]
-
     logger.info(f"{len(upcoming)} közelgő meccs a következő 12 órában")
-    sent = 0
-
+    tips_to_send = []
     for event in upcoming[:MAX_FIXTURES_PER_SCAN]:
         eid = event.get("id")
         if eid in existing_ids:
             continue
-
         tip = analyze_fixture(event)
         if tip is None:
             continue
-
         save_corner_tip(tip)
-        msg = format_tip_msg(tip)
+        tips_to_send.append(tip)
+    return tips_to_send
 
+
+def _sync_collect_results() -> list:
+    tips = load_corner_tips()
+    now_ts = int(datetime.utcnow().timestamp())
+    results = []
+    for t in tips:
+        if t.get("result") is not None:
+            continue
+        if t.get("start_timestamp", 0) + RESULT_DELAY_MIN * 60 > now_ts:
+            continue
+        status, actual = fetch_event_result(t["event_id"])
+        if actual is None:
+            continue
+        if t["tip"] == "over":
+            result = "win" if actual > t["line"] else "loss"
+        else:
+            result = "win" if actual < t["line"] else "loss"
+        update_corner_result(t["event_id"], result, actual)
+        logger.info(f"Eredmény frissítve: {t['event_id']} -> {result} (szögletek: {actual})")
+        results.append((t, actual, result))
+    return results
+
+
+async def scan_and_send(bot: Bot):
+    if not CORNERS_CHAT_ID:
+        logger.warning("CORNERS_CHAT_ID nincs beállítva, kihagyva")
+        return
+    logger.info("Szöglet tipp keresés indul...")
+    tips = await asyncio.to_thread(_sync_collect_tips)
+    sent = 0
+    for tip in tips:
+        msg = format_tip_msg(tip)
         try:
             await bot.send_message(
                 chat_id=CORNERS_CHAT_ID,
@@ -434,35 +457,14 @@ async def scan_and_send(bot: Bot):
             sent += 1
         except Exception as e:
             logger.error(f"Tipp küldési hiba: {e}")
-
     logger.info(f"Szöglet scan kész, {sent} új tipp elküldve")
 
 
 async def check_results(bot: Bot):
-    tips = load_corner_tips()
-    now_ts = int(datetime.utcnow().timestamp())
-
-    for t in tips:
-        if t.get("result") is not None:
-            continue
-        if t.get("start_timestamp", 0) + RESULT_DELAY_MIN * 60 > now_ts:
-            continue
-
-        status, actual = fetch_event_result(t["event_id"])
-        if actual is None:
-            continue
-
-        if t["tip"] == "over":
-            result = "win" if actual > t["line"] else "loss"
-        else:
-            result = "win" if actual < t["line"] else "loss"
-
-        update_corner_result(t["event_id"], result, actual)
-        logger.info(f"Eredmény frissítve: {t['event_id']} -> {result} (szögletek: {actual})")
-
-        if not CORNERS_CHAT_ID:
-            continue
-
+    results = await asyncio.to_thread(_sync_collect_results)
+    if not CORNERS_CHAT_ID:
+        return
+    for t, actual, result in results:
         msg = format_result_msg(t, actual, result)
         try:
             await bot.send_message(
