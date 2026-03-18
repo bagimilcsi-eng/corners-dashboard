@@ -218,7 +218,7 @@ def form_bar(wins: int, total: int) -> str:
 
 
 MIN_FORM_MATCHES = 5  # Minimum forma meccs a megbízható elemzéshez
-STRONG_THRESHOLD = 18  # Erős tipp küszöb
+STRONG_THRESHOLD = 19  # Erős tipp küszöb
 
 
 def calculate_tip(
@@ -274,7 +274,7 @@ def calculate_tip(
         return "uncertain", "🔴 Bizonytalan", score
 
 
-MIN_ODDS = 1.50  # Csak ennél magasabb szorzójú tippeket mutatjuk
+MIN_ODDS = 1.60  # Csak ennél magasabb szorzójú tippeket mutatjuk
 # ─────────────────────────────────────────────
 #  ADATBÁZIS – TIPP ELŐZMÉNYEK
 # ─────────────────────────────────────────────
