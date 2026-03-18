@@ -31,23 +31,12 @@ logger = logging.getLogger(__name__)
 CORNERS_BOT_TOKEN = os.environ["CORNERS_BOT_TOKEN"]
 CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+SPORTS_API_KEY = os.environ.get("SPORTS_API_KEY", "")
 
-SOFASCORE_BASE = "https://www.sofascore.com/api/v1"
-SOFASCORE_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Referer": "https://www.sofascore.com/",
-    "Accept": "application/json, text/plain, */*",
-    "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Origin": "https://www.sofascore.com",
-    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-origin",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
+API_BASE = "https://api-football-v1.p.rapidapi.com/v3"
+API_HEADERS = {
+    "x-rapidapi-key": SPORTS_API_KEY,
+    "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
 }
 
 CORNER_LINE = 9.5
@@ -55,8 +44,8 @@ OVER_THRESHOLD = 12.0
 UNDER_THRESHOLD = 7.0
 RESULT_DELAY_MIN = 110
 MAX_FIXTURES_PER_SCAN = 30
-MIN_RECENT_MATCHES = 3
-API_DELAY_SEC = 0.5
+MIN_RECENT_MATCHES = 4
+API_DELAY_SEC = 1.0
 MIN_CORNER_ODDS = 1.60
 
 _corner_cache: dict = {}
@@ -151,57 +140,44 @@ def update_corner_result(event_id: int, result: str, actual_corners: int):
 
 
 # ─────────────────────────────────────────────
-#  SOFASCORE API
+#  API-FOOTBALL
 # ─────────────────────────────────────────────
 
-def fractional_to_decimal(fractional: str) -> float | None:
-    try:
-        if "/" in fractional:
-            num, den = fractional.split("/")
-            return round(int(num) / int(den) + 1, 2)
-        return round(float(fractional), 2)
-    except Exception:
-        return None
-
-
-def sofa_get(url: str) -> dict:
+def api_get(endpoint: str, params: dict) -> dict:
     try:
         time.sleep(API_DELAY_SEC)
-        r = requests.get(url, headers=SOFASCORE_HEADERS, timeout=15)
+        url = f"{API_BASE}/{endpoint}"
+        r = requests.get(url, headers=API_HEADERS, params=params, timeout=15)
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        logger.error(f"SofaScore API hiba ({url}): {e}")
+        logger.error(f"API-Football hiba ({endpoint}): {e}")
         return {}
 
 
 def fetch_today_fixtures() -> list:
     today = date.today().isoformat()
-    data = sofa_get(f"{SOFASCORE_BASE}/sport/football/scheduled-events/{today}")
-    return data.get("events", [])
+    data = api_get("fixtures", {"date": today, "status": "NS", "timezone": "Europe/Budapest"})
+    return data.get("response", [])
 
 
-def fetch_team_recent_matches(team_id: int) -> list:
-    data = sofa_get(f"{SOFASCORE_BASE}/team/{team_id}/events/last/0")
-    events = data.get("events", [])
-    return [e for e in events if e.get("status", {}).get("type") == "finished"]
+def fetch_team_last_fixtures(team_id: int, last: int = 10) -> list:
+    data = api_get("fixtures", {"team": team_id, "last": last, "status": "FT"})
+    return data.get("response", [])
 
 
-def fetch_event_corners(event_id: int) -> tuple[int | None, int | None]:
-    data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}/statistics")
-    stats = data.get("statistics", [])
-    for period in stats:
-        if period.get("period") == "ALL":
-            for group in period.get("groups", []):
-                for item in group.get("statisticsItems", []):
-                    if "corner" in item.get("name", "").lower():
-                        try:
-                            h = int(item.get("home") or 0)
-                            a = int(item.get("away") or 0)
-                            return h, a
-                        except Exception:
-                            pass
-    return None, None
+def fetch_fixture_statistics(fixture_id: int) -> dict:
+    data = api_get("fixtures/statistics", {"fixture": fixture_id})
+    results = {}
+    for team_stat in data.get("response", []):
+        team_id = team_stat.get("team", {}).get("id")
+        for stat in team_stat.get("statistics", []):
+            if stat.get("type") == "Corner Kicks":
+                try:
+                    results[team_id] = int(stat.get("value") or 0)
+                except Exception:
+                    results[team_id] = 0
+    return results
 
 
 def get_team_corner_avg(team_id: int, is_home: bool) -> float | None:
@@ -211,35 +187,32 @@ def get_team_corner_avg(team_id: int, is_home: bool) -> float | None:
     if cache_key in _corner_cache and _corner_cache[cache_key].get("date") == today_str:
         return _corner_cache[cache_key]["avg"]
 
-    recent = fetch_team_recent_matches(team_id)
-    if not recent:
+    fixtures = fetch_team_last_fixtures(team_id, last=10)
+    if not fixtures:
         return None
 
-    if is_home:
-        relevant = [e for e in recent if e.get("homeTeam", {}).get("id") == team_id]
-    else:
-        relevant = [e for e in recent if e.get("awayTeam", {}).get("id") == team_id]
+    relevant = []
+    for fx in fixtures:
+        teams = fx.get("teams", {})
+        if is_home and teams.get("home", {}).get("id") == team_id:
+            relevant.append(fx)
+        elif not is_home and teams.get("away", {}).get("id") == team_id:
+            relevant.append(fx)
 
     if len(relevant) < MIN_RECENT_MATCHES:
-        relevant = recent
+        relevant = fixtures
 
     if len(relevant) < MIN_RECENT_MATCHES:
         return None
 
     corners_list = []
-    for event in relevant[:7]:
-        eid = event.get("id")
-        if not eid:
+    for fx in relevant[:7]:
+        fx_id = fx.get("fixture", {}).get("id")
+        if not fx_id:
             continue
-        h_corners, a_corners = fetch_event_corners(eid)
-        if h_corners is None:
-            continue
-        if is_home and event.get("homeTeam", {}).get("id") == team_id:
-            corners_list.append(h_corners)
-        elif not is_home and event.get("awayTeam", {}).get("id") == team_id:
-            corners_list.append(a_corners)
-        else:
-            corners_list.append(h_corners if is_home else a_corners)
+        stat = fetch_fixture_statistics(fx_id)
+        if team_id in stat:
+            corners_list.append(stat[team_id])
 
     if len(corners_list) < MIN_RECENT_MATCHES:
         return None
@@ -249,56 +222,46 @@ def get_team_corner_avg(team_id: int, is_home: bool) -> float | None:
     return avg
 
 
-def fetch_corner_odds(event_id: int, tip: str) -> float | None:
-    data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}/odds/1/all")
-    markets = data.get("markets", [])
-    for market in markets:
-        if "corner" in market.get("marketName", "").lower():
-            for choice in market.get("choices", []):
-                name = choice.get("name", "").lower()
-                if (tip == "over" and name == "over") or (tip == "under" and name == "under"):
-                    odds = fractional_to_decimal(choice.get("fractionalValue", ""))
-                    if odds:
-                        return odds
-    return None
-
-
-def fetch_event_result(event_id: int):
-    data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}")
-    event = data.get("event", {})
-    status_type = event.get("status", {}).get("type", "")
-    if status_type != "finished":
+def fetch_fixture_result(fixture_id: int):
+    data = api_get("fixtures", {"id": fixture_id})
+    responses = data.get("response", [])
+    if not responses:
         return None, None
 
-    h_corners, a_corners = fetch_event_corners(event_id)
-    if h_corners is None:
+    fx = responses[0]
+    status = fx.get("fixture", {}).get("status", {}).get("short", "")
+    if status not in ("FT", "AET", "PEN"):
         return None, None
 
-    return "FT", h_corners + a_corners
+    stat = fetch_fixture_statistics(fixture_id)
+    if not stat:
+        return None, None
+
+    total = sum(stat.values())
+    return "FT", total
 
 
 # ─────────────────────────────────────────────
 #  TIP ELEMZÉS
 # ─────────────────────────────────────────────
 
-def analyze_fixture(event: dict) -> dict | None:
-    status_type = event.get("status", {}).get("type", "")
-    if status_type != "notstarted":
-        return None
-
-    event_id = event.get("id")
-    home_team = event.get("homeTeam", {})
-    away_team = event.get("awayTeam", {})
+def analyze_fixture(fixture: dict) -> dict | None:
+    teams = fixture.get("teams", {})
+    home_team = teams.get("home", {})
+    away_team = teams.get("away", {})
     home_id = home_team.get("id")
     away_id = away_team.get("id")
     home_name = home_team.get("name", "?")
     away_name = away_team.get("name", "?")
-    tournament = event.get("tournament", {})
-    league_name = tournament.get("name", "?")
-    category_name = tournament.get("category", {}).get("name", "")
-    start_ts = event.get("startTimestamp", 0)
+    league = fixture.get("league", {})
+    league_name = league.get("name", "?")
+    league_country = league.get("country", "")
+    league_id = league.get("id")
+    fx_data = fixture.get("fixture", {})
+    fixture_id = fx_data.get("id")
+    start_ts = int(datetime.fromisoformat(fx_data.get("date", "").replace("Z", "+00:00")).timestamp()) if fx_data.get("date") else 0
 
-    if not home_id or not away_id or not event_id:
+    if not home_id or not away_id or not fixture_id:
         return None
 
     logger.info(f"Szöglet elemzés: {home_name} vs {away_name} ({league_name})")
@@ -307,7 +270,7 @@ def analyze_fixture(event: dict) -> dict | None:
     away_avg = get_team_corner_avg(away_id, is_home=False)
 
     if home_avg is None or away_avg is None:
-        logger.info(f"Nincs elég adat: {home_name} vs {away_name}")
+        logger.info(f"Nincs elég corner adat: {home_name} vs {away_name}")
         return None
 
     expected = round(home_avg + away_avg, 1)
@@ -320,28 +283,21 @@ def analyze_fixture(event: dict) -> dict | None:
         logger.info(f"Nem elég erős jel ({expected}): {home_name} vs {away_name}")
         return None
 
-    odds = fetch_corner_odds(event_id, tip)
-    if odds is None:
-        logger.info(f"Nincs szöglet odds: {home_name} vs {away_name}")
-    elif odds < MIN_CORNER_ODDS:
-        logger.info(f"Szorzó túl alacsony ({odds}): {home_name} vs {away_name}")
-        return None
-
-    full_league = f"{category_name} – {league_name}" if category_name else league_name
+    full_league = f"{league_country} – {league_name}" if league_country else league_name
 
     return {
-        "event_id": event_id,
+        "event_id": fixture_id,
         "home": home_name,
         "away": away_name,
         "league": full_league,
-        "league_id": tournament.get("id"),
+        "league_id": league_id,
         "start_timestamp": start_ts,
         "tip": tip,
         "line": CORNER_LINE,
         "expected_corners": expected,
         "home_avg": round(home_avg, 1),
         "away_avg": round(away_avg, 1),
-        "odds": odds,
+        "odds": None,
         "sent_at": int(datetime.utcnow().timestamp()),
         "result": None,
     }
@@ -402,21 +358,19 @@ async def scan_and_send(bot: Bot):
 
     now_ts = int(datetime.utcnow().timestamp())
     upcoming = [
-        e for e in fixtures
-        if e.get("status", {}).get("type") == "notstarted"
-        and e.get("startTimestamp", 0) > now_ts
-        and e.get("startTimestamp", 0) < now_ts + 12 * 3600
+        fx for fx in fixtures
+        if fx.get("fixture", {}).get("status", {}).get("short") == "NS"
     ]
 
-    logger.info(f"{len(upcoming)} közelgő meccs a következő 12 órában")
+    logger.info(f"{len(upcoming)} közelgő meccs ma")
     sent = 0
 
-    for event in upcoming[:MAX_FIXTURES_PER_SCAN]:
-        eid = event.get("id")
-        if eid in existing_ids:
+    for fixture in upcoming[:MAX_FIXTURES_PER_SCAN]:
+        fx_id = fixture.get("fixture", {}).get("id")
+        if fx_id in existing_ids:
             continue
 
-        tip = analyze_fixture(event)
+        tip = analyze_fixture(fixture)
         if tip is None:
             continue
 
@@ -447,7 +401,7 @@ async def check_results(bot: Bot):
         if t.get("start_timestamp", 0) + RESULT_DELAY_MIN * 60 > now_ts:
             continue
 
-        status, actual = fetch_event_result(t["event_id"])
+        status, actual = fetch_fixture_result(t["event_id"])
         if actual is None:
             continue
 
@@ -487,7 +441,7 @@ async def main():
     scheduler.add_job(check_results, "interval", seconds=900, args=[bot], next_run_time=datetime.utcnow() + timedelta(seconds=120))
     scheduler.start()
 
-    logger.info("⚽ Szöglet Bot indul... (polling nélkül, csak üzenetküldés)")
+    logger.info("⚽ Szöglet Bot indul... (API-Football, polling nélkül)")
 
     try:
         while True:
