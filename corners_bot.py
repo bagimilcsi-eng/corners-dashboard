@@ -33,10 +33,9 @@ CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 SPORTS_API_KEY = os.environ.get("SPORTS_API_KEY", "")
 
-API_BASE = "https://api-football-v1.p.rapidapi.com/v3"
+API_BASE = "https://v3.football.api-sports.io"
 API_HEADERS = {
-    "x-rapidapi-key": SPORTS_API_KEY,
-    "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
+    "x-apisports-key": SPORTS_API_KEY,
 }
 
 CORNER_LINE = 9.5
