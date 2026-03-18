@@ -192,14 +192,23 @@ def fetch_team_last_fixtures(team_id: int, last: int = 10) -> list:
 def fetch_fixture_statistics(fixture_id: int) -> dict:
     data = api_get("fixtures/statistics", {"fixture": fixture_id})
     results = {}
-    for team_stat in data.get("response", []):
+    response = data.get("response", [])
+    if not response:
+        logger.debug(f"Üres statistics válasz: fixture_id={fixture_id}")
+        return results
+    for team_stat in response:
         team_id = team_stat.get("team", {}).get("id")
         for stat in team_stat.get("statistics", []):
-            if stat.get("type") == "Corner Kicks":
+            stat_type = stat.get("type", "")
+            if "corner" in stat_type.lower():
+                logger.debug(f"Corner stat találat: fixture={fixture_id}, type='{stat_type}', value={stat.get('value')}")
                 try:
                     results[team_id] = int(stat.get("value") or 0)
                 except Exception:
                     results[team_id] = 0
+    if not results:
+        all_types = [s.get("type") for ts in response for s in ts.get("statistics", [])]
+        logger.info(f"Nincs corner stat. Elérhető típusok: {all_types[:10]}")
     return results
 
 
