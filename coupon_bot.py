@@ -175,11 +175,19 @@ def update_pick_result(coupon_id, event_id, result):
 
 
 def get_sent_event_ids():
+    """Return event IDs that should not appear in a new coupon.
+    Rules:
+    - Any pick from a still-pending coupon (result IS NULL) is always excluded.
+    - Any pick sent within the last 48 hours is also excluded (catches settled ones).
+    """
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT picks FROM coupons WHERE sent_at > %s",
-                            (int(datetime.utcnow().timestamp()) - 48 * 3600,))
+                cutoff = int(datetime.utcnow().timestamp()) - 48 * 3600
+                cur.execute(
+                    "SELECT picks FROM coupons WHERE result IS NULL OR sent_at > %s",
+                    (cutoff,)
+                )
                 rows = cur.fetchall()
         ids = set()
         for (picks,) in rows:
