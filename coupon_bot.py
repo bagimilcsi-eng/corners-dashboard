@@ -32,10 +32,9 @@ logger = logging.getLogger(__name__)
 
 COUPON_BOT_TOKEN = os.environ["COUPON_BOT_TOKEN"]
 COUPON_CHAT_ID = os.environ.get("COUPON_CHAT_ID", "")
-ODDS_API_KEY = os.environ["ODDS_API_KEY"]
+ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")  # no longer used for picks
 SUPABASE_DB_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
-ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 SOFASCORE_BASE = "https://api.sofascore.com/api/v1"
 
 SOFASCORE_HEADERS = {
@@ -54,37 +53,26 @@ MIN_PICKS = 2
 MAX_PICKS = 3
 MIN_BOOKMAKERS = 4
 MAX_ODDS_STD = 0.12
+MAX_EVENTS_PER_SPORT = 30  # SofaScore rate limit protection
+MAX_TOTAL_EVENTS = 80
 
-TRUSTED_SPORTS = [
-    "soccer_epl",
-    "soccer_spain_la_liga",
-    "soccer_germany_bundesliga",
-    "soccer_italy_serie_a",
-    "soccer_france_ligue_one",
-    "soccer_uefa_champs_league",
-    "soccer_uefa_europa_league",
-    "soccer_netherlands_eredivisie",
-    "soccer_portugal_primeira_liga",
-    "basketball_nba",
-    "basketball_euroleague",
-    "americanfootball_nfl",
-    "icehockey_nhl",
-    "tennis_atp_french_open",
-    "tennis_atp_us_open",
-    "tennis_atp_wimbledon",
-    "tennis_wta_us_open",
+SOFA_SPORTS = [
+    "football",
+    "basketball",
+    "ice-hockey",
+    "american-football",
+    "tennis",
 ]
 
-SPORT_EMOJI = {
-    "soccer": "⚽",
+SOFA_TO_EMOJI = {
+    "football": "⚽",
     "basketball": "🏀",
-    "americanfootball": "🏈",
+    "ice-hockey": "🏒",
+    "american-football": "🏈",
     "tennis": "🎾",
-    "icehockey": "🏒",
-    "baseball": "⚾",
-    "rugby": "🏉",
-    "mma": "🥊",
 }
+
+SPORT_EMOJI = SOFA_TO_EMOJI  # backward compat for format_coupon
 
 application = None
 
@@ -200,158 +188,127 @@ def get_sent_event_ids():
         return set()
 
 
-# ── Odds API ──────────────────────────────────────────────────────────────────
+# ── SofaScore odds & events ───────────────────────────────────────────────────
 
-def odds_get(path, params=None):
-    p = {"apiKey": ODDS_API_KEY}
-    if params:
-        p.update(params)
+def frac_to_dec(frac: str) -> float | None:
+    """Convert '9/4' → 3.25, or plain decimal string → float."""
     try:
-        r = requests.get(f"{ODDS_API_BASE}{path}", params=p, timeout=12)
-        if r.ok:
-            return r.json()
-        try:
-            err = r.json()
-            if err.get("error_code") == "OUT_OF_USAGE_CREDITS":
-                logger.warning("⚠️ Odds API kvóta kimerült! Eredmények nem frissíthetők automatikusan.")
-                return None
-        except Exception:
-            pass
-        logger.error(f"Odds API HTTP {r.status_code} {path}")
-    except Exception as e:
-        logger.error(f"Odds API error {path}: {e}")
-    return None
+        if "/" in frac:
+            n, d = frac.split("/")
+            return round(1 + int(n) / int(d), 3)
+        return round(float(frac), 3)
+    except (ValueError, ZeroDivisionError, AttributeError):
+        return None
 
 
-def fetch_active_sports():
-    data = odds_get("/sports/")
-    if not data:
-        return []
-    return [s["key"] for s in data if s.get("active") and not s.get("has_outrights")]
-
-
-def fetch_odds_for_sport(sport_key):
+def fetch_sofa_events(sport: str, date_str: str) -> list:
+    """Return notstarted events 2–48 h from now for a sport/date."""
     now_ts = datetime.utcnow().timestamp()
-    data = odds_get(f"/sports/{sport_key}/odds/", {
-        "regions": "eu",
-        "markets": "h2h,totals,double_chance,spreads",
-        "oddsFormat": "decimal",
-        "dateFormat": "unix",
-    })
+    data = sofa_get(f"{SOFASCORE_BASE}/sport/{sport}/scheduled-events/{date_str}")
     if not data:
         return []
-    return [e for e in data
-            if now_ts + 2 * 3600 <= e.get("commence_time", 0) <= now_ts + 48 * 3600]
+    out = []
+    for ev in data.get("events", []):
+        if ev.get("status", {}).get("type") != "notstarted":
+            continue
+        ts = ev.get("startTimestamp", 0)
+        if now_ts + 7200 <= ts <= now_ts + 48 * 3600:
+            ev["_sofa_sport"] = sport
+            out.append(ev)
+    return out
 
 
-def fetch_scores_for_sport(sport_key):
-    data = odds_get(f"/sports/{sport_key}/scores/", {"daysFrom": 2, "dateFormat": "unix"})
-    return data or []
+def fetch_sofa_odds_markets(event_id: int) -> list:
+    """Return the markets list from /event/{id}/odds/1/all."""
+    data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}/odds/1/all")
+    return data.get("markets", []) if data else []
 
 
-def extract_market_picks(event):
+def extract_market_picks_sofa(event: dict, markets: list) -> list:
     """
-    Returns a list of candidate picks from ALL markets (h2h, totals, double_chance, spreads).
-    Each entry: {outcome_key, pick_label, odds, std, n_bookmakers, line (optional)}
-    Only includes outcomes within MIN_PICK_ODDS..MAX_PICK_ODDS range.
+    Parse SofaScore markets and return candidate picks.
+    Markets: Full time (h2h), Double chance, Match goals (totals),
+             Asian handicap (spreads).
+    Returns list of {market, outcome_key, pick_label, odds, line}.
     """
-    bookmakers = event.get("bookmakers", [])
-    n_bm = len(bookmakers)
-    if n_bm < MIN_BOOKMAKERS:
-        return []
+    home = event.get("homeTeam", {}).get("name", "")
+    away = event.get("awayTeam", {}).get("name", "")
+    sport = event.get("_sofa_sport", "football")
 
-    home_team = event.get("home_team", "")
-    away_team = event.get("away_team", "")
-
-    # Collect odds per market key → outcome_key → [prices]
-    market_data = {}  # market_key → {outcome_key: {"prices": [], "line": float|None, "label": str}}
-
-    for bm in bookmakers:
-        for mkt in bm.get("markets", []):
-            mkey = mkt["key"]
-            if mkey not in market_data:
-                market_data[mkey] = {}
-            for oc in mkt.get("outcomes", []):
-                name = oc.get("name", "")
-                price = oc.get("price")
-                point = oc.get("point")  # for totals & spreads
-
-                # Build a stable outcome key
-                if mkey == "h2h":
-                    if name == home_team:
-                        okey = "home"
-                        label = f"{home_team} győz"
-                    elif name == away_team:
-                        okey = "away"
-                        label = f"{away_team} győz"
-                    else:
-                        okey = "draw"
-                        label = "Döntetlen"
-                elif mkey == "totals":
-                    if point is None:
-                        continue
-                    direction = "over" if name.lower().startswith("over") else "under"
-                    okey = f"{direction}_{point}"
-                    hu = "Több mint" if direction == "over" else "Kevesebb mint"
-                    label = f"{hu} {point} gól"
-                elif mkey == "double_chance":
-                    # The Odds API uses: "HomeTeam/Draw", "Draw/AwayTeam", "HomeTeam/AwayTeam"
-                    if name in (home_team, f"{home_team}/Draw", f"Draw/{home_team}"):
-                        okey = "1X"
-                        label = f"{home_team} vagy döntetlen (1X)"
-                    elif name in (away_team, f"{away_team}/Draw", f"Draw/{away_team}"):
-                        okey = "X2"
-                        label = f"Döntetlen vagy {away_team} (X2)"
-                    elif "Draw" not in name:
-                        okey = "12"
-                        label = f"{home_team} vagy {away_team} (12)"
-                    else:
-                        continue
-                elif mkey == "spreads":
-                    if point is None:
-                        continue
-                    if name == home_team:
-                        okey = f"home_spread_{point}"
-                        sign = f"+{point}" if point > 0 else str(point)
-                        label = f"{home_team} ({sign}) hendikep"
-                    elif name == away_team:
-                        okey = f"away_spread_{point}"
-                        sign = f"+{point}" if point > 0 else str(point)
-                        label = f"{away_team} ({sign}) hendikep"
-                    else:
-                        continue
-                else:
-                    continue
-
-                if price is None:
-                    continue
-
-                if okey not in market_data[mkey]:
-                    market_data[mkey][okey] = {"prices": [], "line": point, "label": label}
-                market_data[mkey][okey]["prices"].append(price)
-
-    # Build picks from aggregated data
     picks = []
-    for mkey, outcomes in market_data.items():
-        for okey, info in outcomes.items():
-            prices = info["prices"]
-            if len(prices) < MIN_BOOKMAKERS:
+
+    for market in markets:
+        mname = market.get("marketName", "").lower()
+        cgroup = market.get("choiceGroup", "")      # e.g. "2.5" for Match goals
+        period = market.get("marketPeriod", "")     # "Full-time" vs "1st half" etc.
+
+        # Only full-time markets
+        if period and "full" not in period.lower():
+            continue
+
+        for choice in market.get("choices", []):
+            name = choice.get("name", "")
+            frac = choice.get("fractionalValue", "")
+            odds = frac_to_dec(frac)
+            if odds is None or not (MIN_PICK_ODDS <= odds <= MAX_PICK_ODDS):
                 continue
-            avg = sum(prices) / len(prices)
-            std = max(prices) - min(prices)
-            if not (MIN_PICK_ODDS <= avg <= MAX_PICK_ODDS):
-                continue
-            if std > MAX_ODDS_STD:
-                continue
-            picks.append({
-                "market": mkey,
-                "outcome_key": okey,
-                "pick_label": info["label"],
-                "odds": round(avg, 3),
-                "std": round(std, 4),
-                "line": info["line"],
-                "n_bookmakers": n_bm,
-            })
+
+            # ── Full time (h2h) ──────────────────────────────────────────────
+            if "full time" in mname or mname in ("winner", "home/away", "moneyline"):
+                if name == "1":
+                    picks.append({"market": "h2h", "outcome_key": "home",
+                                  "pick_label": f"{home} győz", "odds": odds, "line": None})
+                elif name == "2":
+                    picks.append({"market": "h2h", "outcome_key": "away",
+                                  "pick_label": f"{away} győz", "odds": odds, "line": None})
+                elif name in ("X", "Draw"):
+                    picks.append({"market": "h2h", "outcome_key": "draw",
+                                  "pick_label": "Döntetlen", "odds": odds, "line": None})
+
+            # ── Double chance ────────────────────────────────────────────────
+            elif "double chance" in mname:
+                dc = {"1X": (f"{home} vagy döntetlen (1X)", "1X"),
+                      "X2": (f"Döntetlen vagy {away} (X2)", "X2"),
+                      "12": (f"{home} vagy {away} (12)", "12")}
+                if name in dc:
+                    label, okey = dc[name]
+                    picks.append({"market": "double_chance", "outcome_key": okey,
+                                  "pick_label": label, "odds": odds, "line": None})
+
+            # ── Match goals / Total points (over/under) ──────────────────────
+            elif "match goals" in mname or "total" in mname:
+                try:
+                    line = float(cgroup)
+                except (ValueError, TypeError):
+                    continue
+                unit = "gól" if sport == "football" else "pont"
+                if name.lower() == "over":
+                    picks.append({"market": "totals", "outcome_key": f"over_{line}",
+                                  "pick_label": f"Több mint {line} {unit}", "odds": odds, "line": line})
+                elif name.lower() == "under":
+                    picks.append({"market": "totals", "outcome_key": f"under_{line}",
+                                  "pick_label": f"Kevesebb mint {line} {unit}", "odds": odds, "line": line})
+
+            # ── Asian handicap ───────────────────────────────────────────────
+            elif "asian handicap" in mname or "handicap" in mname:
+                import re
+                m = re.match(r"\(([+-]?\d+(?:\.\d+)?)\)\s+(.+)", name)
+                if not m:
+                    continue
+                hval = float(m.group(1))
+                team_name = m.group(2).strip()
+                sign = f"+{hval}" if hval > 0 else str(hval)
+                if team_name.lower() in home.lower() or home.lower() in team_name.lower():
+                    picks.append({"market": "spreads",
+                                  "outcome_key": f"home_spread_{hval}",
+                                  "pick_label": f"{home} ({sign}) hendikep",
+                                  "odds": odds, "line": hval})
+                elif team_name.lower() in away.lower() or away.lower() in team_name.lower():
+                    picks.append({"market": "spreads",
+                                  "outcome_key": f"away_spread_{hval}",
+                                  "pick_label": f"{away} ({sign}) hendikep",
+                                  "odds": odds, "line": hval})
+
     return picks
 
 
@@ -386,20 +343,20 @@ def search_sofa_event(home_team, away_team, start_ts=None):
     return None
 
 
-_SPORT_KEY_TO_SOFA = {
-    "soccer": "football",
-    "basketball": "basketball",
-    "americanfootball": "american-football",
-    "baseball": "baseball",
-    "hockey": "ice-hockey",
-    "tennis": "tennis",
-    "mma": "mma",
+_KNOWN_SOFA_SPORTS = {"football", "basketball", "ice-hockey", "american-football", "tennis", "baseball", "mma"}
+_LEGACY_PREFIX_MAP = {
+    "soccer": "football", "basketball": "basketball",
+    "americanfootball": "american-football", "baseball": "baseball",
+    "hockey": "ice-hockey", "tennis": "tennis", "mma": "mma",
 }
 
 
 def _sport_key_to_sofa_sport(sport_key):
+    """Handles both new SofaScore sport names and legacy Odds API prefixes."""
+    if sport_key in _KNOWN_SOFA_SPORTS:
+        return sport_key
     prefix = sport_key.split("_")[0].lower()
-    return _SPORT_KEY_TO_SOFA.get(prefix, "football")
+    return _LEGACY_PREFIX_MAP.get(prefix, "football")
 
 
 def get_sofa_result(home_team, away_team, start_ts, sport_key="soccer"):
@@ -551,75 +508,86 @@ def score_pick(odds, std, n_bm):
 
 
 def _sync_collect_picks():
-    logger.info("Szelvény keresés indul...")
-    active_sports = fetch_active_sports()
-    sports_to_scan = [s for s in TRUSTED_SPORTS if s in active_sports]
-    if not sports_to_scan:
-        sports_to_scan = active_sports[:8]
+    from datetime import timedelta
+    logger.info("Szelvény keresés indul (SofaScore)...")
+    now = datetime.utcnow()
+    dates = [now.strftime("%Y-%m-%d"),
+             (now + timedelta(days=1)).strftime("%Y-%m-%d")]
 
-    logger.info(f"Sportágak: {sports_to_scan}")
     sent_ids = get_sent_event_ids()
     candidates = []
+    total_checked = 0
 
-    for sport_key in sports_to_scan:
-        events = fetch_odds_for_sport(sport_key)
-        sport_prefix = sport_key.split("_")[0]
-
-        for event in events:
-            event_id = event.get("id", "")
-            if event_id in sent_ids:
-                continue
-
-            home = event.get("home_team", "")
-            away = event.get("away_team", "")
-            start_ts = event.get("commence_time", 0)
-
-            market_picks = extract_market_picks(event)
-            if not market_picks:
-                continue
-
-            # Score all outcomes, keep best one per event (avoid correlated picks)
-            best_pick = None
-            best_score = 0
-            for mp in market_picks:
-                sc = score_pick(mp["odds"], mp["std"], mp["n_bookmakers"])
-                if sc <= 0:
+    for sport in SOFA_SPORTS:
+        if total_checked >= MAX_TOTAL_EVENTS:
+            break
+        sport_checked = 0
+        for date_str in dates:
+            if sport_checked >= MAX_EVENTS_PER_SPORT:
+                break
+            events = fetch_sofa_events(sport, date_str)
+            for event in events:
+                if sport_checked >= MAX_EVENTS_PER_SPORT or total_checked >= MAX_TOTAL_EVENTS:
+                    break
+                event_id = str(event.get("id", ""))
+                if event_id in sent_ids:
                     continue
 
-                # SofaScore confirmation only for h2h home/away picks
-                sofa_ok = None
-                if mp["market"] == "h2h" and mp["outcome_key"] in ("home", "away"):
-                    side = mp["outcome_key"]
-                    sofa_ok = verify_with_sofascore(home, away, side)
-                    if sofa_ok is False:
-                        logger.info(f"SofaScore kizárt: {home} vs {away} [{mp['pick_label']}]")
+                home = event.get("homeTeam", {}).get("name", "")
+                away = event.get("awayTeam", {}).get("name", "")
+                start_ts = event.get("startTimestamp", 0)
+
+                sport_checked += 1
+                total_checked += 1
+                markets = fetch_sofa_odds_markets(int(event_id))
+                if not markets:
+                    continue
+
+                market_picks = extract_market_picks_sofa(event, markets)
+                if not market_picks:
+                    continue
+
+                # Score all outcomes, keep best per event (no correlated picks)
+                best_pick = None
+                best_score = 0
+                for mp in market_picks:
+                    # Treat SofaScore as 4-bookmaker equivalent for scoring
+                    sc = score_pick(mp["odds"], std=0.0, n_bm=4)
+                    if sc <= 0:
                         continue
 
-                bonus = 1.15 if sofa_ok is True else 1.0
-                final_score = sc * bonus
+                    sofa_ok = None
+                    if mp["market"] == "h2h" and mp["outcome_key"] in ("home", "away"):
+                        sofa_ok = verify_with_sofascore(home, away, mp["outcome_key"])
+                        if sofa_ok is False:
+                            logger.info(f"H2H kizárt: {home} vs {away} [{mp['pick_label']}]")
+                            continue
 
-                if final_score > best_score:
-                    best_score = final_score
-                    best_pick = {
-                        "event_id": event_id,
-                        "sport_key": sport_key,
-                        "sport": sport_prefix,
-                        "home": home,
-                        "away": away,
-                        "market": mp["market"],
-                        "outcome_key": mp["outcome_key"],
-                        "pick_name": mp["pick_label"],
-                        "line": mp.get("line"),
-                        "odds": round(mp["odds"], 2),
-                        "n_bookmakers": mp["n_bookmakers"],
-                        "start_timestamp": start_ts,
-                        "score": round(final_score, 4),
-                        "sofa_confirmed": sofa_ok is True,
-                        "result": None,
-                    }
+                    bonus = 1.15 if sofa_ok is True else 1.0
+                    final_score = sc * bonus
 
-            if best_pick:
-                candidates.append(best_pick)
+                    if final_score > best_score:
+                        best_score = final_score
+                        best_pick = {
+                            "event_id": event_id,
+                            "sport_key": sport,
+                            "sport": sport,
+                            "home": home,
+                            "away": away,
+                            "market": mp["market"],
+                            "outcome_key": mp["outcome_key"],
+                            "pick_name": mp["pick_label"],
+                            "line": mp.get("line"),
+                            "odds": round(mp["odds"], 2),
+                            "n_bookmakers": 1,
+                            "start_timestamp": start_ts,
+                            "score": round(final_score, 4),
+                            "sofa_confirmed": sofa_ok is True,
+                            "result": None,
+                        }
+
+                if best_pick:
+                    candidates.append(best_pick)
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
     logger.info(f"{len(candidates)} jelölt tipp összesen")
@@ -742,30 +710,16 @@ async def scan_and_send(context=None, force=False):
 def _resolve_pick_score(pick, sports_cache):
     """
     Returns (home_score, away_score) for a finished pick, or None if not yet settled.
-    Tries Odds API first, then falls back to SofaScore (free, no quota).
+    Uses SofaScore scheduled-events (free, no quota, no API key needed).
     """
-    # ── 1. Odds API (primary) ──────────────────────────────────────────────────
-    sport_key = pick.get("sport_key", "")
-    if sport_key not in sports_cache:
-        sports_cache[sport_key] = fetch_scores_for_sport(sport_key)
-    scores = sports_cache[sport_key]
-    if scores:
-        matched = next((s for s in scores if s.get("id") == pick["event_id"]), None)
-        if matched and matched.get("completed"):
-            scores_list = matched.get("scores") or []
-            home_team = matched.get("home_team", "")
-            away_team = matched.get("away_team", "")
-            home_obj = next((s for s in scores_list if s.get("name") == home_team), None)
-            away_obj = next((s for s in scores_list if s.get("name") == away_team), None)
-            if home_obj and away_obj:
-                return int(home_obj["score"]), int(away_obj["score"])
-
-    # ── 2. SofaScore fallback (free, no quota) ────────────────────────────────
     start_ts = pick.get("start_timestamp", 0)
     now_ts = int(datetime.utcnow().timestamp())
     if now_ts - start_ts < 5400:
         return None
-    result = get_sofa_result(pick.get("home", ""), pick.get("away", ""), start_ts, pick.get("sport_key", "soccer"))
+    result = get_sofa_result(
+        pick.get("home", ""), pick.get("away", ""),
+        start_ts, pick.get("sport_key", "football")
+    )
     if result:
         logger.info(f"SofaScore eredmény: {pick['home']} {result[0]}-{result[1]} {pick['away']}")
         return result
