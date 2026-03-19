@@ -234,7 +234,7 @@ def fetch_odds_for_sport(sport_key):
     now_ts = datetime.utcnow().timestamp()
     data = odds_get(f"/sports/{sport_key}/odds/", {
         "regions": "eu",
-        "markets": "h2h",
+        "markets": "h2h,totals,double_chance,spreads",
         "oddsFormat": "decimal",
         "dateFormat": "unix",
     })
@@ -249,38 +249,110 @@ def fetch_scores_for_sport(sport_key):
     return data or []
 
 
-def get_consensus(event):
+def extract_market_picks(event):
+    """
+    Returns a list of candidate picks from ALL markets (h2h, totals, double_chance, spreads).
+    Each entry: {outcome_key, pick_label, odds, std, n_bookmakers, line (optional)}
+    Only includes outcomes within MIN_PICK_ODDS..MAX_PICK_ODDS range.
+    """
     bookmakers = event.get("bookmakers", [])
-    if len(bookmakers) < MIN_BOOKMAKERS:
-        return None
+    n_bm = len(bookmakers)
+    if n_bm < MIN_BOOKMAKERS:
+        return []
 
-    home_list, away_list = [], []
+    home_team = event.get("home_team", "")
+    away_team = event.get("away_team", "")
+
+    # Collect odds per market key → outcome_key → [prices]
+    market_data = {}  # market_key → {outcome_key: {"prices": [], "line": float|None, "label": str}}
+
     for bm in bookmakers:
         for mkt in bm.get("markets", []):
-            if mkt["key"] == "h2h":
-                oc = {o["name"]: o["price"] for o in mkt.get("outcomes", [])}
-                h = oc.get(event.get("home_team"))
-                a = oc.get(event.get("away_team"))
-                if h:
-                    home_list.append(h)
-                if a:
-                    away_list.append(a)
+            mkey = mkt["key"]
+            if mkey not in market_data:
+                market_data[mkey] = {}
+            for oc in mkt.get("outcomes", []):
+                name = oc.get("name", "")
+                price = oc.get("price")
+                point = oc.get("point")  # for totals & spreads
 
-    if not home_list or not away_list:
-        return None
+                # Build a stable outcome key
+                if mkey == "h2h":
+                    if name == home_team:
+                        okey = "home"
+                        label = f"{home_team} győz"
+                    elif name == away_team:
+                        okey = "away"
+                        label = f"{away_team} győz"
+                    else:
+                        okey = "draw"
+                        label = "Döntetlen"
+                elif mkey == "totals":
+                    if point is None:
+                        continue
+                    direction = "over" if name.lower().startswith("over") else "under"
+                    okey = f"{direction}_{point}"
+                    hu = "Több mint" if direction == "over" else "Kevesebb mint"
+                    label = f"{hu} {point} gól"
+                elif mkey == "double_chance":
+                    # The Odds API uses: "HomeTeam/Draw", "Draw/AwayTeam", "HomeTeam/AwayTeam"
+                    if name in (home_team, f"{home_team}/Draw", f"Draw/{home_team}"):
+                        okey = "1X"
+                        label = f"{home_team} vagy döntetlen (1X)"
+                    elif name in (away_team, f"{away_team}/Draw", f"Draw/{away_team}"):
+                        okey = "X2"
+                        label = f"Döntetlen vagy {away_team} (X2)"
+                    elif "Draw" not in name:
+                        okey = "12"
+                        label = f"{home_team} vagy {away_team} (12)"
+                    else:
+                        continue
+                elif mkey == "spreads":
+                    if point is None:
+                        continue
+                    if name == home_team:
+                        okey = f"home_spread_{point}"
+                        sign = f"+{point}" if point > 0 else str(point)
+                        label = f"{home_team} ({sign}) hendikep"
+                    elif name == away_team:
+                        okey = f"away_spread_{point}"
+                        sign = f"+{point}" if point > 0 else str(point)
+                        label = f"{away_team} ({sign}) hendikep"
+                    else:
+                        continue
+                else:
+                    continue
 
-    home_avg = sum(home_list) / len(home_list)
-    away_avg = sum(away_list) / len(away_list)
-    home_std = max(home_list) - min(home_list)
-    away_std = max(away_list) - min(away_list)
+                if price is None:
+                    continue
 
-    return {
-        "home": round(home_avg, 3),
-        "away": round(away_avg, 3),
-        "home_std": home_std,
-        "away_std": away_std,
-        "n_bookmakers": len(bookmakers),
-    }
+                if okey not in market_data[mkey]:
+                    market_data[mkey][okey] = {"prices": [], "line": point, "label": label}
+                market_data[mkey][okey]["prices"].append(price)
+
+    # Build picks from aggregated data
+    picks = []
+    for mkey, outcomes in market_data.items():
+        for okey, info in outcomes.items():
+            prices = info["prices"]
+            if len(prices) < MIN_BOOKMAKERS:
+                continue
+            avg = sum(prices) / len(prices)
+            std = max(prices) - min(prices)
+            if not (MIN_PICK_ODDS <= avg <= MAX_PICK_ODDS):
+                continue
+            if std > MAX_ODDS_STD:
+                continue
+            picks.append({
+                "market": mkey,
+                "outcome_key": okey,
+                "pick_label": info["label"],
+                "odds": round(avg, 3),
+                "std": round(std, 4),
+                "line": info["line"],
+                "n_bookmakers": n_bm,
+            })
+    return picks
 
 
 # ── SofaScore H2H + Form ──────────────────────────────────────────────────────
@@ -468,16 +540,12 @@ def verify_with_sofascore(home_team, away_team, pick_side):
 
 # ── Pick scoring & coupon building ───────────────────────────────────────────
 
-def score_pick(consensus, side):
-    odds = consensus[side]
-    std = consensus.get(f"{side}_std", 999)
-    n_bm = consensus.get("n_bookmakers", 0)
-
+def score_pick(odds, std, n_bm):
+    """Generic pick scorer — works for any market type."""
     if not (MIN_PICK_ODDS <= odds <= MAX_PICK_ODDS):
         return 0
     if std > MAX_ODDS_STD:
         return 0
-
     confidence = 1 / odds
     return confidence * (n_bm ** 0.5) * (1 - std * 3)
 
@@ -505,41 +573,53 @@ def _sync_collect_picks():
             home = event.get("home_team", "")
             away = event.get("away_team", "")
             start_ts = event.get("commence_time", 0)
-            consensus = get_consensus(event)
-            if not consensus:
+
+            market_picks = extract_market_picks(event)
+            if not market_picks:
                 continue
 
-            for side in ["home", "away"]:
-                sc = score_pick(consensus, side)
+            # Score all outcomes, keep best one per event (avoid correlated picks)
+            best_pick = None
+            best_score = 0
+            for mp in market_picks:
+                sc = score_pick(mp["odds"], mp["std"], mp["n_bookmakers"])
                 if sc <= 0:
                     continue
 
-                odds = consensus[side]
-                pick_name = home if side == "home" else away
-
-                sofa_ok = verify_with_sofascore(home, away, side)
-                if sofa_ok is False:
-                    logger.info(f"SofaScore kizárt: {home} vs {away} → {pick_name}")
-                    continue
+                # SofaScore confirmation only for h2h home/away picks
+                sofa_ok = None
+                if mp["market"] == "h2h" and mp["outcome_key"] in ("home", "away"):
+                    side = mp["outcome_key"]
+                    sofa_ok = verify_with_sofascore(home, away, side)
+                    if sofa_ok is False:
+                        logger.info(f"SofaScore kizárt: {home} vs {away} [{mp['pick_label']}]")
+                        continue
 
                 bonus = 1.15 if sofa_ok is True else 1.0
                 final_score = sc * bonus
 
-                candidates.append({
-                    "event_id": event_id,
-                    "sport_key": sport_key,
-                    "sport": sport_prefix,
-                    "home": home,
-                    "away": away,
-                    "pick": side,
-                    "pick_name": pick_name,
-                    "odds": round(odds, 2),
-                    "n_bookmakers": consensus.get("n_bookmakers", 0),
-                    "start_timestamp": start_ts,
-                    "score": round(final_score, 4),
-                    "sofa_confirmed": sofa_ok is True,
-                    "result": None,
-                })
+                if final_score > best_score:
+                    best_score = final_score
+                    best_pick = {
+                        "event_id": event_id,
+                        "sport_key": sport_key,
+                        "sport": sport_prefix,
+                        "home": home,
+                        "away": away,
+                        "market": mp["market"],
+                        "outcome_key": mp["outcome_key"],
+                        "pick_name": mp["pick_label"],
+                        "line": mp.get("line"),
+                        "odds": round(mp["odds"], 2),
+                        "n_bookmakers": mp["n_bookmakers"],
+                        "start_timestamp": start_ts,
+                        "score": round(final_score, 4),
+                        "sofa_confirmed": sofa_ok is True,
+                        "result": None,
+                    }
+
+            if best_pick:
+                candidates.append(best_pick)
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
     logger.info(f"{len(candidates)} jelölt tipp összesen")
@@ -593,18 +673,28 @@ def esc(text: str) -> str:
     return "".join(f"\\{c}" if c in special else c for c in str(text))
 
 
+MARKET_EMOJI = {
+    "h2h": "",
+    "totals": "📊",
+    "double_chance": "🔀",
+    "spreads": "↕️",
+}
+
+
 def format_coupon(picks, combined_odds, number):
     lines = [f"🎯 *SZELVÉNY \\#{number:03d}*\n"]
     for p in picks:
-        emoji = SPORT_EMOJI.get(p["sport"], "🏅")
+        sport_emoji = SPORT_EMOJI.get(p["sport"], "🏅")
+        market_emoji = MARKET_EMOJI.get(p.get("market", "h2h"), "")
         dt = datetime.fromtimestamp(p["start_timestamp"], tz=HU_TZ)
         time_str = esc(dt.strftime("%m.%d %H:%M"))
         confirmed = " ✔️" if p.get("sofa_confirmed") else ""
-        pick_name = esc(p['pick_name'])
+        pick_name = esc(p["pick_name"])
         matchup = esc(f"{p['home']} vs {p['away']}")
         odds_str = esc(f"{p['odds']:.2f}")
+        prefix = f"{sport_emoji}{market_emoji}".strip()
         lines.append(
-            f"{emoji} *{pick_name}* győz{confirmed}\n"
+            f"{prefix} *{pick_name}*{confirmed}\n"
             f"   _{matchup}_\n"
             f"   🕐 {time_str}  💰 @{odds_str}  \\({p['n_bookmakers']} iroda\\)"
         )
@@ -706,10 +796,42 @@ def _sync_check_results():
                 continue
 
             home_score, away_score = score
-            if pick["pick"] == "home":
-                pick_result = "win" if home_score > away_score else "loss"
+            market = pick.get("market", "h2h")
+            okey = pick.get("outcome_key", pick.get("pick", "home"))
+
+            if market == "h2h":
+                if okey == "home":
+                    pick_result = "win" if home_score > away_score else "loss"
+                elif okey == "away":
+                    pick_result = "win" if away_score > home_score else "loss"
+                else:  # draw
+                    pick_result = "win" if home_score == away_score else "loss"
+
+            elif market == "totals":
+                line = float(pick.get("line") or 2.5)
+                total = home_score + away_score
+                if okey.startswith("over"):
+                    pick_result = "win" if total > line else "loss"
+                else:
+                    pick_result = "win" if total < line else "loss"
+
+            elif market == "double_chance":
+                if okey == "1X":
+                    pick_result = "win" if home_score >= away_score else "loss"
+                elif okey == "X2":
+                    pick_result = "win" if away_score >= home_score else "loss"
+                else:  # 12
+                    pick_result = "win" if home_score != away_score else "loss"
+
+            elif market == "spreads":
+                line = float(pick.get("line") or 0)
+                if okey.startswith("home"):
+                    pick_result = "win" if (home_score + line) > away_score else "loss"
+                else:
+                    pick_result = "win" if (away_score + line) > home_score else "loss"
+
             else:
-                pick_result = "win" if away_score > home_score else "loss"
+                pick_result = "win" if home_score > away_score else "loss"
 
             update_pick_result(coupon["id"], pick["event_id"], pick_result)
             if pick_result == "loss":
