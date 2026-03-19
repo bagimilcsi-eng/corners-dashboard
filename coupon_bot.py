@@ -505,19 +505,29 @@ def build_coupon(candidates):
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 
+def esc(text: str) -> str:
+    """Escape special characters for Telegram MarkdownV2."""
+    special = r'\_*[]()~`>#+-=|{}.!'
+    return "".join(f"\\{c}" if c in special else c for c in str(text))
+
+
 def format_coupon(picks, combined_odds, number):
     lines = [f"🎯 *SZELVÉNY \\#{number:03d}*\n"]
     for p in picks:
         emoji = SPORT_EMOJI.get(p["sport"], "🏅")
         dt = datetime.fromtimestamp(p["start_timestamp"], tz=HU_TZ)
-        time_str = dt.strftime("%m\\.%d %H:%M")
+        time_str = esc(dt.strftime("%m.%d %H:%M"))
         confirmed = " ✔️" if p.get("sofa_confirmed") else ""
+        pick_name = esc(p['pick_name'])
+        matchup = esc(f"{p['home']} vs {p['away']}")
+        odds_str = esc(f"{p['odds']:.2f}")
         lines.append(
-            f"{emoji} *{p['pick_name']}* győz{confirmed}\n"
-            f"   _{p['home']} vs {p['away']}_\n"
-            f"   🕐 {time_str}  💰 @{p['odds']:.2f}  \\({p['n_bookmakers']} iroda\\)"
+            f"{emoji} *{pick_name}* győz{confirmed}\n"
+            f"   _{matchup}_\n"
+            f"   🕐 {time_str}  💰 @{odds_str}  \\({p['n_bookmakers']} iroda\\)"
         )
-    lines.append(f"\n📊 *Összesített szorzó: {combined_odds:.2f}x*")
+    combined_str = esc(f"{combined_odds:.2f}")
+    lines.append(f"\n📊 *Összesített szorzó: {combined_str}x*")
     lines.append(f"🎲 {len(picks)} mérkőzés")
     return "\n".join(lines)
 
