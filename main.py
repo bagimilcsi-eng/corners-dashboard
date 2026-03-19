@@ -324,7 +324,7 @@ def sofascore_fetch_player_stats(
 
 MIN_FORM_MATCHES = 10  # Minimum 10 forma meccs kötelező
 MIN_H2H_MATCHES = 5   # Minimum 5 H2H meccs kötelező
-STRONG_THRESHOLD = 25  # Erős tipp küszöb
+STRONG_THRESHOLD = 27.5  # Erős tipp küszöb
 
 
 def calculate_tip(
