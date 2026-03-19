@@ -534,9 +534,9 @@ def format_coupon(picks, combined_odds, number):
 
 # ── Scheduler jobs ────────────────────────────────────────────────────────────
 
-async def scan_and_send(context=None):
+async def scan_and_send(context=None, force=False):
     now_hu = datetime.now(HU_TZ)
-    if not (8 <= now_hu.hour < 20):
+    if not force and not (8 <= now_hu.hour < 20):
         logger.info(f"Időn kívül ({now_hu.hour}:{now_hu.minute:02d}), kihagyva")
         return
 
@@ -636,7 +636,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_szelveny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Szelvény keresése folyamatban...")
-    await scan_and_send(context)
+    await scan_and_send(context, force=True)
 
 
 async def post_init(app):
