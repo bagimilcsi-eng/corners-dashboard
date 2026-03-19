@@ -1,4 +1,5 @@
-import { useCouponStats, type Coupon, type CouponPick } from "@/hooks/use-coupons";
+import { useState } from "react";
+import { useAllCoupons, type Coupon, type CouponPick } from "@/hooks/use-coupons";
 import { format } from "date-fns";
 import { hu } from "date-fns/locale";
 import {
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { MonthPicker, buildMonthKeys, isInMonth, type MonthKey } from "@/components/ui/month-picker";
 import { cn, formatPercentage, formatROI } from "@/lib/utils";
 
 const SPORT_EMOJI: Record<string, string> = {
@@ -27,6 +29,26 @@ const SPORT_EMOJI: Record<string, string> = {
   rugby: "🏉",
   mma: "🥊",
 };
+
+function computeCouponStats(coupons: Coupon[]) {
+  const settled = coupons.filter((c) => c.result !== null);
+  const wins = settled.filter((c) => c.result === "win").length;
+  const losses = settled.length - wins;
+  const pending = coupons.filter((c) => c.result === null).length;
+  const winRate = settled.length > 0 ? (wins / settled.length) * 100 : 0;
+
+  let roiSum = 0, oddsSum = 0, oddsCount = 0;
+  for (const c of settled) {
+    const o = Number(c.combined_odds);
+    roiSum += c.result === "win" ? o - 1 : -1;
+    oddsSum += o;
+    oddsCount++;
+  }
+  const roi = settled.length > 0 ? (roiSum / settled.length) * 100 : 0;
+  const avgOdds = oddsCount > 0 ? oddsSum / oddsCount : null;
+
+  return { total: coupons.length, settled: settled.length, wins, losses, pending, winRate, roi, avgOdds };
+}
 
 function PickRow({ pick }: { pick: CouponPick }) {
   const emoji = SPORT_EMOJI[pick.sport] ?? "🏅";
@@ -167,7 +189,8 @@ function SportBreakdown({ coupons }: { coupons: Coupon[] }) {
 }
 
 export default function CouponDashboard() {
-  const { data, isLoading, isError, refetch, isFetching } = useCouponStats();
+  const { data: allCoupons = [], isLoading, isError, refetch, isFetching } = useAllCoupons();
+  const [selectedMonth, setSelectedMonth] = useState<MonthKey>("all");
 
   if (isLoading) {
     return (
@@ -181,7 +204,7 @@ export default function CouponDashboard() {
     );
   }
 
-  if (isError || !data) {
+  if (isError) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <Card className="max-w-md w-full border-destructive/50 bg-destructive/5">
@@ -204,7 +227,9 @@ export default function CouponDashboard() {
     );
   }
 
-  const { total, settled, wins, losses, pending, winRate, roi, avgOdds, recentCoupons } = data;
+  const months = buildMonthKeys(allCoupons.map((c) => c.sent_at));
+  const filtered = allCoupons.filter((c) => isInMonth(c.sent_at, selectedMonth));
+  const { total, settled, wins, losses, pending, winRate, roi, avgOdds } = computeCouponStats(filtered);
 
   const statCards = [
     { title: "Összes szelvény", value: total, icon: Target, color: "text-blue-500", bg: "bg-blue-500/10" },
@@ -248,14 +273,17 @@ export default function CouponDashboard() {
             className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm"
           >
             <RefreshCcw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />
-            <span className="font-medium text-sm">
-              {isFetching ? "Frissítés..." : "Frissítés"}
-            </span>
+            <span className="font-medium text-sm">{isFetching ? "Frissítés..." : "Frissítés"}</span>
           </button>
         </div>
       </div>
 
-      {total === 0 ? (
+      {/* Month picker */}
+      {months.length > 0 && (
+        <MonthPicker months={months} selected={selectedMonth} onChange={setSelectedMonth} />
+      )}
+
+      {allCoupons.length === 0 ? (
         <Card className="border-dashed border-2 bg-transparent">
           <CardContent className="flex flex-col items-center justify-center py-24 text-center space-y-4">
             <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center">
@@ -288,26 +316,38 @@ export default function CouponDashboard() {
             ))}
           </div>
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-            {/* Coupon list */}
-            <div className="xl:col-span-2 flex flex-col gap-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Ticket className="w-5 h-5 text-primary" />
-                  <h2 className="font-bold text-lg">Szelvények ({total})</h2>
+          {total === 0 ? (
+            <Card className="border-dashed border-2 bg-transparent">
+              <CardContent className="flex flex-col items-center justify-center py-16 text-center space-y-3">
+                <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center">
+                  <Ticket className="w-6 h-6 text-muted-foreground" />
                 </div>
-                <Badge variant="secondary" className="font-mono">{recentCoupons.length} utolsó</Badge>
+                <h3 className="text-lg font-bold">Ebben a hónapban nincs szelvény</h3>
+                <p className="text-muted-foreground text-sm">Válassz másik hónapot, vagy az "Összes" nézetet.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+              {/* Coupon list */}
+              <div className="xl:col-span-2 flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Ticket className="w-5 h-5 text-primary" />
+                    <h2 className="font-bold text-lg">Szelvények ({total})</h2>
+                  </div>
+                  <Badge variant="secondary" className="font-mono">{total} db</Badge>
+                </div>
+                {filtered.map((c) => (
+                  <CouponCard key={c.id} coupon={c} />
+                ))}
               </div>
-              {recentCoupons.map((c) => (
-                <CouponCard key={c.id} coupon={c} />
-              ))}
-            </div>
 
-            {/* Sport breakdown */}
-            <div className="xl:col-span-1">
-              <SportBreakdown coupons={recentCoupons} />
+              {/* Sport breakdown */}
+              <div className="xl:col-span-1">
+                <SportBreakdown coupons={filtered} />
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>

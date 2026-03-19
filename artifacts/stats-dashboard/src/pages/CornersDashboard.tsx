@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useCornerTips, type CornerTip } from "@/hooks/use-corner-tips";
 import { format } from "date-fns";
 import { hu } from "date-fns/locale";
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { MonthPicker, buildMonthKeys, isInMonth, type MonthKey } from "@/components/ui/month-picker";
 import { cn, formatPercentage, formatROI } from "@/lib/utils";
 
 function getStrength(expected: number): { label: string; color: string; dots: number } {
@@ -142,7 +144,11 @@ function LeagueBreakdown({ tips }: { tips: CornerTip[] }) {
 }
 
 export default function CornersDashboard() {
-  const { data: tips = [], isLoading, error, refetch, isFetching } = useCornerTips();
+  const { data: allTips = [], isLoading, error, refetch, isFetching } = useCornerTips();
+  const [selectedMonth, setSelectedMonth] = useState<MonthKey>("all");
+
+  const months = buildMonthKeys(allTips.map((t) => t.start_timestamp));
+  const tips = allTips.filter((t) => isInMonth(t.start_timestamp, selectedMonth));
 
   const settled = tips.filter((t) => t.result != null);
   const pending = tips.filter((t) => t.result == null);
@@ -222,7 +228,7 @@ export default function CornersDashboard() {
           </h1>
           <p className="text-muted-foreground mt-1 flex items-center gap-2">
             <Activity className="w-4 h-4 text-primary" />
-            Over/Under {tips[0]?.line ?? 9.5} szöglet tippek
+            Over/Under {allTips[0]?.line ?? 9.5} szöglet tippek
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -251,7 +257,12 @@ export default function CornersDashboard() {
         </div>
       </div>
 
-      {tips.length === 0 ? (
+      {/* Month picker */}
+      {months.length > 0 && (
+        <MonthPicker months={months} selected={selectedMonth} onChange={setSelectedMonth} />
+      )}
+
+      {allTips.length === 0 ? (
         <Card className="border-dashed border-2 bg-transparent">
           <CardContent className="flex flex-col items-center justify-center py-24 text-center space-y-4">
             <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center">
@@ -261,6 +272,16 @@ export default function CornersDashboard() {
             <p className="text-muted-foreground max-w-md">
               A bot automatikusan keres over/under {9.5} szöglet tippeket. Amint megfelelő meccsek vannak, itt jelennek meg.
             </p>
+          </CardContent>
+        </Card>
+      ) : tips.length === 0 ? (
+        <Card className="border-dashed border-2 bg-transparent">
+          <CardContent className="flex flex-col items-center justify-center py-16 text-center space-y-3">
+            <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center">
+              <BarChart3 className="w-6 h-6 text-muted-foreground" />
+            </div>
+            <h3 className="text-lg font-bold">Ebben a hónapban nincs szöglet tipp</h3>
+            <p className="text-muted-foreground text-sm">Válassz másik hónapot, vagy az "Összes" nézetet.</p>
           </CardContent>
         </Card>
       ) : (

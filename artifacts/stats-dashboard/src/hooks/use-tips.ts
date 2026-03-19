@@ -24,7 +24,7 @@ export interface TipStats {
   roi: number;
   avgOdds: number | null;
   leagueStats: Record<string, { wins: number; losses: number; pending: number }>;
-  recentTips: Tip[];
+  allTips: Tip[];
 }
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || "";
@@ -34,12 +34,10 @@ export function useTipStats() {
     queryKey: ["tip-stats"],
     queryFn: async () => {
       const res = await fetch(`${API_BASE}/api/tips/stats`);
-      if (!res.ok) {
-        throw new Error("Failed to fetch tip stats");
-      }
+      if (!res.ok) throw new Error("Failed to fetch tip stats");
       return res.json();
     },
-    refetchInterval: 15000,
+    refetchInterval: 30_000,
     staleTime: 0,
   });
 }

@@ -1,42 +1,57 @@
-import React from "react";
-import { useTipStats } from "@/hooks/use-tips";
+import { useState } from "react";
+import { useTipStats, type Tip } from "@/hooks/use-tips";
 import { format } from "date-fns";
 import { hu } from "date-fns/locale";
-import { motion } from "framer-motion";
-import { 
-  Trophy, 
-  TrendingUp, 
-  Target, 
-  Clock, 
+import {
+  Trophy,
+  TrendingUp,
+  Target,
+  Clock,
   Activity,
   CheckCircle2,
   XCircle,
-  AlertCircle,
   RefreshCcw,
   BarChart3,
-  TableProperties
+  TableProperties,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { MonthPicker, buildMonthKeys, isInMonth, type MonthKey } from "@/components/ui/month-picker";
 import { cn, formatOdds, formatPercentage, formatROI } from "@/lib/utils";
 
-const containerVariants = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.1
+function computeStats(tips: Tip[]) {
+  const settled = tips.filter((t) => t.result !== null);
+  const wins = settled.filter((t) => t.result === "win").length;
+  const losses = settled.length - wins;
+  const pending = tips.filter((t) => t.result === null).length;
+  const winRate = settled.length > 0 ? (wins / settled.length) * 100 : 0;
+
+  let roiSum = 0, roiCount = 0, oddsSum = 0, oddsCount = 0;
+  for (const t of settled) {
+    if (t.odds) {
+      roiSum += t.result === "win" ? Number(t.odds) - 1 : -1;
+      roiCount++;
+      oddsSum += Number(t.odds);
+      oddsCount++;
     }
   }
-};
+  const roi = roiCount > 0 ? (roiSum / roiCount) * 100 : 0;
+  const avgOdds = oddsCount > 0 ? oddsSum / oddsCount : null;
 
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
-};
+  const leagueMap: Record<string, { wins: number; losses: number; pending: number }> = {};
+  for (const t of tips) {
+    if (!leagueMap[t.league]) leagueMap[t.league] = { wins: 0, losses: 0, pending: 0 };
+    if (t.result === "win") leagueMap[t.league].wins++;
+    else if (t.result === "loss") leagueMap[t.league].losses++;
+    else leagueMap[t.league].pending++;
+  }
+
+  return { total: tips.length, settled: settled.length, wins, losses, pending, winRate, roi, avgOdds, leagueMap };
+}
 
 export default function Dashboard() {
   const { data, isLoading, isError, refetch, isFetching } = useTipStats();
+  const [selectedMonth, setSelectedMonth] = useState<MonthKey>("all");
 
   if (isLoading) {
     return (
@@ -58,9 +73,9 @@ export default function Dashboard() {
             <XCircle className="w-12 h-12 text-destructive" />
             <div className="space-y-2">
               <h3 className="text-xl font-bold">Hiba történt</h3>
-              <p className="text-muted-foreground">Nem sikerült betölteni a statisztikákat. Kérjük, próbálja újra később.</p>
+              <p className="text-muted-foreground">Nem sikerült betölteni a statisztikákat.</p>
             </div>
-            <button 
+            <button
               onClick={() => refetch()}
               className="px-4 py-2 bg-background border border-border rounded-lg hover:bg-muted transition-colors flex items-center gap-2"
             >
@@ -73,12 +88,15 @@ export default function Dashboard() {
     );
   }
 
-  const { total, settled, wins, losses, pending, winRate, roi, avgOdds, leagueStats, recentTips } = data;
+  const allTips: Tip[] = data.allTips ?? [];
+  const months = buildMonthKeys(allTips.map((t) => t.start_timestamp));
+  const filtered = allTips.filter((t) => isInMonth(t.start_timestamp, selectedMonth));
+  const { total, settled, wins, losses, pending, winRate, roi, avgOdds, leagueMap } = computeStats(filtered);
 
   const statCards = [
     { title: "Összes tipp", value: total, icon: Target, color: "text-blue-500", bg: "bg-blue-500/10" },
-    { title: "Nyerési arány", value: formatPercentage(winRate), icon: Trophy, color: "text-yellow-500", bg: "bg-yellow-500/10" },
-    { title: "ROI", value: formatROI(roi), icon: TrendingUp, color: roi >= 0 ? "text-success" : "text-destructive", bg: roi >= 0 ? "bg-success/10" : "bg-destructive/10" },
+    { title: "Nyerési arány", value: settled > 0 ? formatPercentage(winRate) : "—", icon: Trophy, color: "text-yellow-500", bg: "bg-yellow-500/10" },
+    { title: "ROI", value: settled > 0 ? formatROI(roi) : "—", icon: TrendingUp, color: roi >= 0 ? "text-success" : "text-destructive", bg: roi >= 0 ? "bg-success/10" : "bg-destructive/10" },
     { title: "Átlag szorzó", value: avgOdds != null ? avgOdds.toFixed(2) : "—", icon: BarChart3, color: "text-purple-400", bg: "bg-purple-400/10" },
     { title: "Nyertes", value: wins, icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
     { title: "Vesztes", value: losses, icon: XCircle, color: "text-destructive", bg: "bg-destructive/10" },
@@ -117,12 +135,15 @@ export default function Dashboard() {
             className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm"
           >
             <RefreshCcw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />
-            <span className="font-medium text-sm">
-              {isFetching ? "Frissítés..." : "Frissítés"}
-            </span>
+            <span className="font-medium text-sm">{isFetching ? "Frissítés..." : "Frissítés"}</span>
           </button>
         </div>
       </div>
+
+      {/* Month picker */}
+      {months.length > 0 && (
+        <MonthPicker months={months} selected={selectedMonth} onChange={setSelectedMonth} />
+      )}
 
       {total === 0 ? (
         <Card className="border-dashed border-2 bg-transparent">
@@ -130,50 +151,47 @@ export default function Dashboard() {
             <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center">
               <BarChart3 className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-xl font-bold">Még nincsenek tippek</h3>
+            <h3 className="text-xl font-bold">
+              {selectedMonth === "all" ? "Még nincsenek tippek" : "Ebben a hónapban nincs tipp"}
+            </h3>
             <p className="text-muted-foreground max-w-md">
-              A bot még nem küldött egyetlen tippet sem. Amint új tippek érkeznek a feltételeknek megfelelően, itt fognak megjelenni.
+              {selectedMonth === "all"
+                ? "A bot még nem küldött egyetlen tippet sem."
+                : "Válassz másik hónapot, vagy az \"Összes\" nézetet."}
             </p>
           </CardContent>
         </Card>
       ) : (
-        <motion.div 
-          variants={containerVariants}
-          initial="hidden"
-          animate="show"
-          className="space-y-8"
-        >
-          {/* Top Stats Grid */}
+        <div className="space-y-8">
+          {/* Stat cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
             {statCards.map((stat, idx) => (
-              <motion.div key={idx} variants={itemVariants}>
-                <Card className="glass-card hover:-translate-y-1 transition-transform duration-300">
-                  <CardContent className="p-5 flex items-center gap-4">
-                    <div className={cn("w-12 h-12 rounded-full flex items-center justify-center shrink-0", stat.bg)}>
-                      <stat.icon className={cn("w-6 h-6", stat.color)} />
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground font-medium">{stat.title}</p>
-                      <p className={cn("text-2xl font-bold font-display tracking-tight", stat.color)}>
-                        {stat.value}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
+              <Card key={idx} className="glass-card hover:-translate-y-1 transition-transform duration-300">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className={cn("w-12 h-12 rounded-full flex items-center justify-center shrink-0", stat.bg)}>
+                    <stat.icon className={cn("w-6 h-6", stat.color)} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground font-medium">{stat.title}</p>
+                    <p className={cn("text-2xl font-bold font-display tracking-tight", stat.color)}>
+                      {stat.value}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-            {/* Recent Tips Table */}
-            <motion.div variants={itemVariants} className="xl:col-span-2">
+            {/* Tips table */}
+            <div className="xl:col-span-2">
               <Card className="glass-card h-full flex flex-col">
                 <CardHeader className="flex flex-row items-center justify-between pb-4 border-b border-border/50">
                   <div className="flex items-center gap-2">
                     <TableProperties className="w-5 h-5 text-primary" />
-                    <CardTitle>Legutóbbi Tippek</CardTitle>
+                    <CardTitle>Tippek</CardTitle>
                   </div>
-                  <Badge variant="secondary" className="font-mono">{recentTips.length} utolsó</Badge>
+                  <Badge variant="secondary" className="font-mono">{filtered.length} db</Badge>
                 </CardHeader>
                 <CardContent className="p-0 flex-1 overflow-auto">
                   <div className="overflow-x-auto">
@@ -188,10 +206,12 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/50">
-                        {recentTips.map((tip) => (
+                        {filtered.map((tip) => (
                           <tr key={tip.event_id} className="hover:bg-secondary/30 transition-colors group">
                             <td className="px-6 py-4">
-                              <div className="font-medium text-foreground">{tip.home} <span className="text-muted-foreground font-normal mx-1">vs</span> {tip.away}</div>
+                              <div className="font-medium text-foreground">
+                                {tip.home} <span className="text-muted-foreground font-normal mx-1">vs</span> {tip.away}
+                              </div>
                               <div className="text-xs text-muted-foreground mt-1">{tip.league}</div>
                             </td>
                             <td className="px-6 py-4">
@@ -207,9 +227,9 @@ export default function Dashboard() {
                               {format(new Date(tip.start_timestamp * 1000), "MMM d. HH:mm", { locale: hu })}
                             </td>
                             <td className="px-6 py-4 text-right">
-                              {tip.result === 'win' ? (
+                              {tip.result === "win" ? (
                                 <Badge variant="success" className="shadow-lg shadow-success/20">Nyertes</Badge>
-                              ) : tip.result === 'loss' ? (
+                              ) : tip.result === "loss" ? (
                                 <Badge variant="destructive" className="shadow-lg shadow-destructive/20">Vesztes</Badge>
                               ) : (
                                 <Badge variant="warning" className="shadow-lg shadow-warning/20">Folyamatban</Badge>
@@ -222,10 +242,10 @@ export default function Dashboard() {
                   </div>
                 </CardContent>
               </Card>
-            </motion.div>
+            </div>
 
-            {/* League Breakdown */}
-            <motion.div variants={itemVariants} className="xl:col-span-1">
+            {/* League breakdown */}
+            <div className="xl:col-span-1">
               <Card className="glass-card h-full flex flex-col">
                 <CardHeader className="pb-4 border-b border-border/50">
                   <div className="flex items-center gap-2">
@@ -235,55 +255,43 @@ export default function Dashboard() {
                 </CardHeader>
                 <CardContent className="p-0">
                   <div className="divide-y divide-border/50">
-                    {Object.entries(leagueStats)
+                    {Object.entries(leagueMap)
                       .sort(([, a], [, b]) => (b.wins + b.losses) - (a.wins + a.losses))
                       .map(([league, stats]) => {
                         const totalLeague = stats.wins + stats.losses;
                         const lgWinRate = totalLeague > 0 ? (stats.wins / totalLeague) * 100 : 0;
-                        
                         return (
-                          <div key={league} className="p-6 hover:bg-secondary/30 transition-colors">
-                            <div className="flex justify-between items-center mb-4">
-                              <h4 className="font-semibold text-lg">{league}</h4>
-                              <div className="text-right">
+                          <div key={league} className="p-5 hover:bg-secondary/30 transition-colors">
+                            <div className="flex justify-between items-center mb-3">
+                              <h4 className="font-semibold text-sm truncate max-w-[160px]">{league}</h4>
+                              <div className="text-right shrink-0">
                                 <span className={cn(
                                   "text-xl font-bold font-display",
                                   lgWinRate >= 50 ? "text-success" : (lgWinRate > 0 ? "text-warning" : "text-muted-foreground")
                                 )}>
-                                  {totalLeague > 0 ? formatPercentage(lgWinRate) : "-"}
+                                  {totalLeague > 0 ? formatPercentage(lgWinRate) : "—"}
                                 </span>
                                 <p className="text-xs text-muted-foreground">Nyerési arány</p>
                               </div>
                             </div>
-                            
                             <div className="flex gap-2 h-2 rounded-full overflow-hidden bg-muted">
-                              {stats.wins > 0 && <div style={{ width: `${(stats.wins / (totalLeague || 1)) * 100}%` }} className="bg-success transition-all duration-1000" />}
-                              {stats.losses > 0 && <div style={{ width: `${(stats.losses / (totalLeague || 1)) * 100}%` }} className="bg-destructive transition-all duration-1000" />}
+                              {stats.wins > 0 && <div style={{ width: `${(stats.wins / (totalLeague || 1)) * 100}%` }} className="bg-success" />}
+                              {stats.losses > 0 && <div style={{ width: `${(stats.losses / (totalLeague || 1)) * 100}%` }} className="bg-destructive" />}
                             </div>
-                            
-                            <div className="flex justify-between mt-3 text-sm">
-                              <div className="flex items-center gap-1.5 text-success">
-                                <CheckCircle2 className="w-4 h-4" />
-                                <span>{stats.wins}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-destructive">
-                                <XCircle className="w-4 h-4" />
-                                <span>{stats.losses}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-warning">
-                                <Clock className="w-4 h-4" />
-                                <span>{stats.pending}</span>
-                              </div>
+                            <div className="flex justify-between mt-2 text-sm">
+                              <div className="flex items-center gap-1 text-success"><CheckCircle2 className="w-4 h-4" />{stats.wins}</div>
+                              <div className="flex items-center gap-1 text-destructive"><XCircle className="w-4 h-4" />{stats.losses}</div>
+                              <div className="flex items-center gap-1 text-warning"><Clock className="w-4 h-4" />{stats.pending}</div>
                             </div>
                           </div>
                         );
-                    })}
+                      })}
                   </div>
                 </CardContent>
               </Card>
-            </motion.div>
+            </div>
           </div>
-        </motion.div>
+        </div>
       )}
     </div>
   );

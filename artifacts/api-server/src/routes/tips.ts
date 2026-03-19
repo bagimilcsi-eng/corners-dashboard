@@ -131,7 +131,7 @@ router.get("/tips/stats", async (_req, res) => {
     roi: Math.round(roi * 10) / 10,
     avgOdds: avgOdds !== null ? Math.round(avgOdds * 100) / 100 : null,
     leagueStats: leagueMap,
-    recentTips: [...tips].slice(0, 20),
+    allTips: tips,
   });
 });
 

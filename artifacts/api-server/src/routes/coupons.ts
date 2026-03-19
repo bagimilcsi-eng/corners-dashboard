@@ -17,7 +17,7 @@ const pool = new Pool({
 router.get("/coupons", async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT * FROM coupons ORDER BY sent_at DESC LIMIT 100"
+      "SELECT * FROM coupons ORDER BY sent_at DESC"
     );
     const parsed = rows.map((r) => ({
       ...r,

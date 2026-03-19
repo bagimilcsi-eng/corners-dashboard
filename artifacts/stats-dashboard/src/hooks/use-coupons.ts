@@ -27,26 +27,15 @@ export interface Coupon {
   settled_at: number | null;
 }
 
-export interface CouponStats {
-  total: number;
-  settled: number;
-  wins: number;
-  losses: number;
-  pending: number;
-  winRate: number;
-  roi: number;
-  avgOdds: number | null;
-  recentCoupons: Coupon[];
-}
-
-export function useCouponStats() {
-  return useQuery<CouponStats>({
-    queryKey: ["coupon-stats"],
+export function useAllCoupons() {
+  return useQuery<Coupon[]>({
+    queryKey: ["all-coupons"],
     queryFn: async () => {
-      const res = await fetch(`${API_BASE}/api/coupons/stats`);
-      if (!res.ok) throw new Error("Nem sikerült betölteni a szelvény statisztikákat");
+      const res = await fetch(`${API_BASE}/api/coupons`);
+      if (!res.ok) throw new Error("Nem sikerült betölteni a szelvényeket");
       return res.json();
     },
     refetchInterval: 30_000,
+    staleTime: 0,
   });
 }
