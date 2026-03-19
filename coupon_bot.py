@@ -602,8 +602,13 @@ def _sync_check_results():
                 all_settled = False
                 continue
 
-            home_score = matched.get("scores", {}).get("home", {}).get("current")
-            away_score = matched.get("scores", {}).get("away", {}).get("current")
+            scores_list = matched.get("scores") or []
+            home_team = matched.get("home_team", "")
+            away_team = matched.get("away_team", "")
+            home_obj = next((s for s in scores_list if s.get("name") == home_team), None)
+            away_obj = next((s for s in scores_list if s.get("name") == away_team), None)
+            home_score = home_obj.get("score") if home_obj else None
+            away_score = away_obj.get("score") if away_obj else None
             if home_score is None or away_score is None:
                 all_settled = False
                 continue
