@@ -30,11 +30,13 @@ async function initCornerDb() {
         expected_corners REAL NOT NULL,
         home_avg         REAL,
         away_avg         REAL,
+        odds             REAL DEFAULT NULL,
         sent_at          BIGINT NOT NULL,
         result           TEXT DEFAULT NULL,
         actual_corners   INTEGER DEFAULT NULL
       )
     `);
+    await client.query(`ALTER TABLE corner_tips ADD COLUMN IF NOT EXISTS odds REAL DEFAULT NULL`);
   } finally {
     client.release();
   }
@@ -61,13 +63,13 @@ router.post("/corner-tips", async (req, res) => {
     await pool.query(
       `INSERT INTO corner_tips
         (event_id, home, away, league, league_id, start_timestamp, tip, line,
-         expected_corners, home_avg, away_avg, sent_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         expected_corners, home_avg, away_avg, odds, sent_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        ON CONFLICT (event_id) DO NOTHING`,
       [
         t.event_id, t.home, t.away, t.league, t.league_id,
         t.start_timestamp, t.tip, t.line ?? 9.5,
-        t.expected_corners, t.home_avg, t.away_avg, t.sent_at,
+        t.expected_corners, t.home_avg, t.away_avg, t.odds ?? null, t.sent_at,
       ]
     );
     res.json({ ok: true });

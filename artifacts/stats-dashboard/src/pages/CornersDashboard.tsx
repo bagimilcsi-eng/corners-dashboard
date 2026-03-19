@@ -57,11 +57,16 @@ function TipCard({ tip }: { tip: CornerTip }) {
         <div className="flex items-center justify-between">
           <div>
             <p className="font-semibold text-foreground">{tip.home} <span className="text-muted-foreground font-normal">vs</span> {tip.away}</p>
-            <div className="flex items-center gap-4 mt-1 text-sm">
+            <div className="flex items-center gap-4 mt-1 text-sm flex-wrap">
               <span className={cn("font-bold flex items-center gap-1", isOver ? "text-blue-400" : "text-purple-400")}>
                 {isOver ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
                 {isOver ? "OVER" : "UNDER"} {tip.line}
               </span>
+              {tip.odds != null && (
+                <span className="font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded-md text-sm">
+                  @{Number(tip.odds).toFixed(2)}
+                </span>
+              )}
               <span className="text-muted-foreground">
                 Várható: <span className="text-foreground font-medium">{Number(tip.expected_corners).toFixed(1)}</span> szöglet
               </span>
