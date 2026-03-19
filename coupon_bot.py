@@ -295,7 +295,7 @@ def sofa_get(url):
     return None
 
 
-def search_sofa_event(home_team, away_team):
+def search_sofa_event(home_team, away_team, start_ts=None):
     query = requests.utils.quote(home_team[:20])
     data = sofa_get(f"{SOFASCORE_BASE}/search/multi/{query}")
     if not data:
@@ -304,8 +304,74 @@ def search_sofa_event(home_team, away_team):
     away_lower = away_team.lower()
     for e in events:
         a = e.get("awayTeam", {}).get("name", "").lower()
-        if any(token in a for token in away_lower.split()[:2] if len(token) > 3):
-            return e.get("id"), e.get("homeTeam", {}).get("id"), e.get("awayTeam", {}).get("id")
+        if not any(token in a for token in away_lower.split()[:2] if len(token) > 3):
+            continue
+        if start_ts:
+            ev_ts = e.get("startTimestamp", 0)
+            if abs(ev_ts - start_ts) > 86400:
+                continue
+        return e.get("id"), e.get("homeTeam", {}).get("id"), e.get("awayTeam", {}).get("id")
+    return None
+
+
+_SPORT_KEY_TO_SOFA = {
+    "soccer": "football",
+    "basketball": "basketball",
+    "americanfootball": "american-football",
+    "baseball": "baseball",
+    "hockey": "ice-hockey",
+    "tennis": "tennis",
+    "mma": "mma",
+}
+
+
+def _sport_key_to_sofa_sport(sport_key):
+    prefix = sport_key.split("_")[0].lower()
+    return _SPORT_KEY_TO_SOFA.get(prefix, "football")
+
+
+def get_sofa_result(home_team, away_team, start_ts, sport_key="soccer"):
+    """
+    Returns (home_score, away_score) if the match is finished, else None.
+    Uses SofaScore scheduled-events (free, no quota, no API key needed).
+    """
+    from datetime import datetime as _dt
+    date_str = _dt.utcfromtimestamp(start_ts).strftime("%Y-%m-%d")
+    sofa_sport = _sport_key_to_sofa_sport(sport_key)
+
+    data = sofa_get(f"{SOFASCORE_BASE}/sport/{sofa_sport}/scheduled-events/{date_str}")
+    if not data:
+        return None
+
+    events = data.get("events", [])
+    home_lower = home_team.lower()
+    away_lower = away_team.lower()
+
+    def _normalize(s):
+        import unicodedata
+        return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode().lower()
+
+    def _name_match(stored, query):
+        stored_n, query_n = _normalize(stored), _normalize(query)
+        tokens = [t for t in query_n.split() if len(t) > 2]
+        return any(t in stored_n or t[:5] in stored_n for t in tokens) if tokens else query_n in stored_n
+
+    for ev in events:
+        h_name = ev.get("homeTeam", {}).get("name", "").lower()
+        a_name = ev.get("awayTeam", {}).get("name", "").lower()
+        ev_ts = ev.get("startTimestamp", 0)
+        home_ok = _name_match(h_name, home_lower)
+        ts_ok = abs(ev_ts - start_ts) < 7200
+        # Home team + timestamp sufficient — teams don't play twice in 2 hours
+        if home_ok and ts_ok:
+            if ev.get("status", {}).get("type") != "finished":
+                return None
+            h = ev.get("homeScore", {}).get("current")
+            a = ev.get("awayScore", {}).get("current")
+            if h is None or a is None:
+                return None
+            return int(h), int(a)
+
     return None
 
 
@@ -583,6 +649,40 @@ async def scan_and_send(context=None, force=False):
     logger.info(f"Szelvény #{number:03d} elküldve ({combined_odds:.2f}x, {len(picks)} meccs)")
 
 
+def _resolve_pick_score(pick, sports_cache):
+    """
+    Returns (home_score, away_score) for a finished pick, or None if not yet settled.
+    Tries Odds API first, then falls back to SofaScore (free, no quota).
+    """
+    # ── 1. Odds API (primary) ──────────────────────────────────────────────────
+    sport_key = pick.get("sport_key", "")
+    if sport_key not in sports_cache:
+        sports_cache[sport_key] = fetch_scores_for_sport(sport_key)
+    scores = sports_cache[sport_key]
+    if scores:
+        matched = next((s for s in scores if s.get("id") == pick["event_id"]), None)
+        if matched and matched.get("completed"):
+            scores_list = matched.get("scores") or []
+            home_team = matched.get("home_team", "")
+            away_team = matched.get("away_team", "")
+            home_obj = next((s for s in scores_list if s.get("name") == home_team), None)
+            away_obj = next((s for s in scores_list if s.get("name") == away_team), None)
+            if home_obj and away_obj:
+                return int(home_obj["score"]), int(away_obj["score"])
+
+    # ── 2. SofaScore fallback (free, no quota) ────────────────────────────────
+    start_ts = pick.get("start_timestamp", 0)
+    now_ts = int(datetime.utcnow().timestamp())
+    if now_ts - start_ts < 5400:
+        return None
+    result = get_sofa_result(pick.get("home", ""), pick.get("away", ""), start_ts, pick.get("sport_key", "soccer"))
+    if result:
+        logger.info(f"SofaScore eredmény: {pick['home']} {result[0]}-{result[1]} {pick['away']}")
+        return result
+
+    return None
+
+
 def _sync_check_results():
     pending = get_pending_coupons()
     if not pending:
@@ -600,30 +700,12 @@ def _sync_check_results():
                     coupon_won = False
                 continue
 
-            sport_key = pick.get("sport_key", "")
-            if sport_key not in sports_cache:
-                sports_cache[sport_key] = fetch_scores_for_sport(sport_key)
-
-            scores = sports_cache[sport_key]
-            matched = next((s for s in scores if s.get("id") == pick["event_id"]), None)
-            if not matched or not matched.get("completed"):
+            score = _resolve_pick_score(pick, sports_cache)
+            if score is None:
                 all_settled = False
                 continue
 
-            scores_list = matched.get("scores") or []
-            home_team = matched.get("home_team", "")
-            away_team = matched.get("away_team", "")
-            home_obj = next((s for s in scores_list if s.get("name") == home_team), None)
-            away_obj = next((s for s in scores_list if s.get("name") == away_team), None)
-            home_score = home_obj.get("score") if home_obj else None
-            away_score = away_obj.get("score") if away_obj else None
-            if home_score is None or away_score is None:
-                all_settled = False
-                continue
-
-            home_score = int(home_score)
-            away_score = int(away_score)
-
+            home_score, away_score = score
             if pick["pick"] == "home":
                 pick_result = "win" if home_score > away_score else "loss"
             else:
@@ -710,7 +792,8 @@ async def post_init(app):
     scheduler = AsyncIOScheduler(timezone="UTC")
     scheduler.add_job(scan_and_send, "interval", minutes=30, id="scan",
                       next_run_time=datetime.now(timezone.utc))
-    scheduler.add_job(check_results, "interval", minutes=20, id="results")
+    scheduler.add_job(check_results, "interval", minutes=20, id="results",
+                      next_run_time=datetime.now(timezone.utc))
     scheduler.start()
     logger.info("🎯 Szelvény Bot indul...")
 
