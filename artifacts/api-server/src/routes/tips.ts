@@ -100,13 +100,18 @@ router.get("/tips/stats", async (_req, res) => {
 
   let roiSum = 0;
   let roiCount = 0;
+  let oddsSum = 0;
+  let oddsCount = 0;
   for (const t of settled) {
     if (t.odds) {
       roiSum += t.result === "win" ? Number(t.odds) - 1 : -1;
       roiCount++;
+      oddsSum += Number(t.odds);
+      oddsCount++;
     }
   }
   const roi = roiCount > 0 ? (roiSum / roiCount) * 100 : 0;
+  const avgOdds = oddsCount > 0 ? oddsSum / oddsCount : null;
 
   const leagueMap: Record<string, { wins: number; losses: number; pending: number }> = {};
   for (const t of tips) {
@@ -124,6 +129,7 @@ router.get("/tips/stats", async (_req, res) => {
     pending: pending.length,
     winRate: Math.round(winRate * 10) / 10,
     roi: Math.round(roi * 10) / 10,
+    avgOdds: avgOdds !== null ? Math.round(avgOdds * 100) / 100 : null,
     leagueStats: leagueMap,
     recentTips: [...tips].slice(0, 20),
   });

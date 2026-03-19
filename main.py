@@ -503,6 +503,10 @@ def build_tip_message(
     if tip_odds is not None and tip_odds < MIN_ODDS:
         return None, tip_odds, None
 
+    # Ha nincs szorzó, alapértelmezett 1.62-t használunk
+    if tip_odds is None:
+        tip_odds = 1.62
+
     # Tipp meta adat (mentéshez)
     predicted_name = home if winner == "home" else away
     tip_meta = {

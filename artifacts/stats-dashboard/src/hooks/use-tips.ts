@@ -22,6 +22,7 @@ export interface TipStats {
   pending: number;
   winRate: number;
   roi: number;
+  avgOdds: number | null;
   leagueStats: Record<string, { wins: number; losses: number; pending: number }>;
   recentTips: Tip[];
 }

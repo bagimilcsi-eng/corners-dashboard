@@ -73,12 +73,13 @@ export default function Dashboard() {
     );
   }
 
-  const { total, settled, wins, losses, pending, winRate, roi, leagueStats, recentTips } = data;
+  const { total, settled, wins, losses, pending, winRate, roi, avgOdds, leagueStats, recentTips } = data;
 
   const statCards = [
     { title: "Összes tipp", value: total, icon: Target, color: "text-blue-500", bg: "bg-blue-500/10" },
     { title: "Nyerési arány", value: formatPercentage(winRate), icon: Trophy, color: "text-yellow-500", bg: "bg-yellow-500/10" },
     { title: "ROI", value: formatROI(roi), icon: TrendingUp, color: roi >= 0 ? "text-success" : "text-destructive", bg: roi >= 0 ? "bg-success/10" : "bg-destructive/10" },
+    { title: "Átlag szorzó", value: avgOdds != null ? avgOdds.toFixed(2) : "—", icon: BarChart3, color: "text-purple-400", bg: "bg-purple-400/10" },
     { title: "Nyertes", value: wins, icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
     { title: "Vesztes", value: losses, icon: XCircle, color: "text-destructive", bg: "bg-destructive/10" },
     { title: "Folyamatban", value: pending, icon: Clock, color: "text-warning", bg: "bg-warning/10" },
@@ -137,7 +138,7 @@ export default function Dashboard() {
           className="space-y-8"
         >
           {/* Top Stats Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
             {statCards.map((stat, idx) => (
               <motion.div key={idx} variants={itemVariants}>
                 <Card className="glass-card hover:-translate-y-1 transition-transform duration-300">
