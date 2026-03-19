@@ -28,6 +28,7 @@ export function useCornerTips() {
       if (!res.ok) throw new Error("Nem sikerült betölteni a szöglet tippeket");
       return res.json();
     },
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,
+    staleTime: 0,
   });
 }
