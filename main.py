@@ -243,7 +243,7 @@ def form_bar(wins: int, total: int) -> str:
 def get_player_first_set_rate(
     player_name: str, all_events: list, last: int = 10
 ) -> tuple[int, int]:
-    """Játékos első szett megnyerési aránya a napi meccsek alapján."""
+    """Játékos első szett megnyerési aránya a napi meccsek alapján (fallback)."""
     wins = 0
     total = 0
     for e in all_events:
@@ -269,6 +269,57 @@ def get_player_first_set_rate(
         if total >= last:
             break
     return wins, total
+
+
+def sofascore_fetch_player_stats(
+    team_id: int, last: int = 10
+) -> tuple[tuple[int, int], tuple[int, int]]:
+    """
+    Játékos egyéni forma és első szett statisztika lekérése SofaScore-ból.
+    Csak az elmúlt 14 nap befejezett meccseit nézi, maximum 'last' darabot.
+    Visszaad: ((forma_wins, forma_total), (fs_wins, fs_total))
+    """
+    cutoff = int(datetime.utcnow().timestamp()) - 14 * 24 * 3600
+    url = f"https://www.sofascore.com/api/v1/team/{team_id}/events/last/0"
+    try:
+        resp = requests.get(url, headers=SOFASCORE_HEADERS, timeout=8)
+        if resp.status_code != 200:
+            return (0, 0), (0, 0)
+        events = resp.json().get("events", [])
+        form_w = 0
+        form_t = 0
+        fs_w = 0
+        fs_t = 0
+        for e in events:
+            if form_t >= last:
+                break
+            ts = e.get("startTimestamp", 0)
+            if ts < cutoff:
+                continue
+            if e.get("status", {}).get("type", "").lower() != "finished":
+                continue
+            is_home = e.get("homeTeam", {}).get("id") == team_id
+            hs = e.get("homeScore", {}).get("current", 0) or 0
+            as_ = e.get("awayScore", {}).get("current", 0) or 0
+            # Forma
+            form_t += 1
+            if is_home and hs > as_:
+                form_w += 1
+            elif not is_home and as_ > hs:
+                form_w += 1
+            # Első szett
+            hs1 = e.get("homeScore", {}).get("period1")
+            as1 = e.get("awayScore", {}).get("period1")
+            if hs1 is not None and as1 is not None:
+                fs_t += 1
+                if is_home and hs1 > as1:
+                    fs_w += 1
+                elif not is_home and as1 > hs1:
+                    fs_w += 1
+        return (form_w, form_t), (fs_w, fs_t)
+    except Exception as e:
+        logger.error(f"Játékos stats fetch hiba (team_id={team_id}): {e}")
+        return (0, 0), (0, 0)
 
 
 MIN_FORM_MATCHES = 10  # Minimum 10 forma meccs kötelező
@@ -525,6 +576,8 @@ def build_tip_message(
     """
     home = event.get("homeTeam", {}).get("name", "?")
     away = event.get("awayTeam", {}).get("name", "?")
+    home_team_id = event.get("homeTeam", {}).get("id")
+    away_team_id = event.get("awayTeam", {}).get("id")
     event_id = event.get("id")
     league = event.get("tournament", {}).get("name", "?")
     category = event.get("tournament", {}).get("category", {}).get("name", "")
@@ -539,13 +592,16 @@ def build_tip_message(
     if event_id:
         h2h_home_wins, h2h_total = sofascore_fetch_h2h(event_id, home, away)
 
-    # Forma – utolsó 10 kötelező
-    home_w, home_t = get_player_recent_form(home, all_events, last=10)
-    away_w, away_t = get_player_recent_form(away, all_events, last=10)
+    # Forma + első szett – elmúlt 14 nap, utolsó 10 meccs egyénenként
+    if home_team_id:
+        (home_w, home_t), (home_fs_w, home_fs_t) = sofascore_fetch_player_stats(home_team_id, last=10)
+    else:
+        home_w, home_t, home_fs_w, home_fs_t = 0, 0, 0, 0
 
-    # Első szett arány
-    home_fs_w, home_fs_t = get_player_first_set_rate(home, all_events, last=10)
-    away_fs_w, away_fs_t = get_player_first_set_rate(away, all_events, last=10)
+    if away_team_id:
+        (away_w, away_t), (away_fs_w, away_fs_t) = sofascore_fetch_player_stats(away_team_id, last=10)
+    else:
+        away_w, away_t, away_fs_w, away_fs_t = 0, 0, 0, 0
 
     winner, confidence, score = calculate_tip(
         h2h_home_wins,
