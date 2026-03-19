@@ -1,7 +1,6 @@
 import { useCouponStats, type Coupon, type CouponPick } from "@/hooks/use-coupons";
 import { format } from "date-fns";
 import { hu } from "date-fns/locale";
-import { motion } from "framer-motion";
 import {
   Trophy,
   TrendingUp,
@@ -17,16 +16,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatPercentage, formatROI } from "@/lib/utils";
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  show: { opacity: 1, transition: { staggerChildren: 0.1 } },
-};
-
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } },
-};
 
 const SPORT_EMOJI: Record<string, string> = {
   soccer: "⚽",
@@ -66,11 +55,11 @@ function PickRow({ pick }: { pick: CouponPick }) {
           @{Number(pick.odds).toFixed(2)}
         </span>
         {pick.result === "win" ? (
-          <Badge variant="success" className="text-xs shadow-sm shadow-success/20">Nyert</Badge>
+          <Badge variant="success" className="text-xs">Nyert</Badge>
         ) : pick.result === "loss" ? (
-          <Badge variant="destructive" className="text-xs shadow-sm shadow-destructive/20">Veszett</Badge>
+          <Badge variant="destructive" className="text-xs">Veszett</Badge>
         ) : (
-          <Badge variant="warning" className="text-xs shadow-sm shadow-warning/20">⏳</Badge>
+          <Badge variant="warning" className="text-xs">⏳</Badge>
         )}
       </div>
     </div>
@@ -81,38 +70,36 @@ function CouponCard({ coupon }: { coupon: Coupon }) {
   const sentDt = format(new Date(coupon.sent_at * 1000), "MMM d. HH:mm", { locale: hu });
 
   return (
-    <motion.div variants={itemVariants}>
-      <Card className="glass-card hover:-translate-y-0.5 transition-transform duration-300">
-        <CardContent className="p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Ticket className="w-4 h-4 text-primary" />
-              <span className="font-bold text-foreground">
-                #{String(coupon.coupon_number).padStart(3, "0")}
-              </span>
-              <span className="text-xs text-muted-foreground">{sentDt}</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="font-mono font-bold text-primary text-lg">
-                {Number(coupon.combined_odds).toFixed(2)}x
-              </span>
-              {coupon.result === "win" ? (
-                <Badge variant="success" className="shadow-lg shadow-success/20">✅ Nyertes</Badge>
-              ) : coupon.result === "loss" ? (
-                <Badge variant="destructive" className="shadow-lg shadow-destructive/20">❌ Vesztes</Badge>
-              ) : (
-                <Badge variant="warning" className="shadow-lg shadow-warning/20">⏳ Folyamatban</Badge>
-              )}
-            </div>
+    <Card className="glass-card hover:-translate-y-0.5 transition-transform duration-300">
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Ticket className="w-4 h-4 text-primary" />
+            <span className="font-bold text-foreground">
+              #{String(coupon.coupon_number).padStart(3, "0")}
+            </span>
+            <span className="text-xs text-muted-foreground">{sentDt}</span>
           </div>
-          <div className="flex flex-col">
-            {coupon.picks.map((p, i) => (
-              <PickRow key={i} pick={p} />
-            ))}
+          <div className="flex items-center gap-3">
+            <span className="font-mono font-bold text-primary text-lg">
+              {Number(coupon.combined_odds).toFixed(2)}x
+            </span>
+            {coupon.result === "win" ? (
+              <Badge variant="success" className="shadow-lg shadow-success/20">✅ Nyertes</Badge>
+            ) : coupon.result === "loss" ? (
+              <Badge variant="destructive" className="shadow-lg shadow-destructive/20">❌ Vesztes</Badge>
+            ) : (
+              <Badge variant="warning" className="shadow-lg shadow-warning/20">⏳ Folyamatban</Badge>
+            )}
           </div>
-        </CardContent>
-      </Card>
-    </motion.div>
+        </div>
+        <div className="flex flex-col">
+          {coupon.picks.map((p, i) => (
+            <PickRow key={i} pick={p} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -129,7 +116,7 @@ function SportBreakdown({ coupons }: { coupons: Coupon[] }) {
     }
   }
 
-  const entries = Object.entries(map).sort((a, b) => b[1].total - a[1].total);
+  const entries = Object.entries(map).sort((a, b) => (b[1].total + b[1].pending) - (a[1].total + a[1].pending));
   if (entries.length === 0) return null;
 
   return (
@@ -154,7 +141,7 @@ function SportBreakdown({ coupons }: { coupons: Coupon[] }) {
                   <div className="text-right">
                     <span className={cn(
                       "text-xl font-bold font-display",
-                      pct >= 50 ? "text-success" : (pct > 0 ? "text-warning" : "text-muted-foreground")
+                      s.total === 0 ? "text-muted-foreground" : pct >= 50 ? "text-success" : "text-warning"
                     )}>
                       {s.total > 0 ? formatPercentage(pct) : "—"}
                     </span>
@@ -162,8 +149,8 @@ function SportBreakdown({ coupons }: { coupons: Coupon[] }) {
                   </div>
                 </div>
                 <div className="flex gap-2 h-2 rounded-full overflow-hidden bg-muted">
-                  {s.wins > 0 && <div style={{ width: `${(s.wins / (s.total || 1)) * 100}%` }} className="bg-success transition-all duration-1000" />}
-                  {(s.total - s.wins) > 0 && <div style={{ width: `${((s.total - s.wins) / (s.total || 1)) * 100}%` }} className="bg-destructive transition-all duration-1000" />}
+                  {s.wins > 0 && <div style={{ width: `${(s.wins / Math.max(s.total, 1)) * 100}%` }} className="bg-success" />}
+                  {(s.total - s.wins) > 0 && <div style={{ width: `${((s.total - s.wins) / Math.max(s.total, 1)) * 100}%` }} className="bg-destructive" />}
                 </div>
                 <div className="flex justify-between mt-2 text-sm">
                   <div className="flex items-center gap-1 text-success"><CheckCircle2 className="w-4 h-4" />{s.wins}</div>
@@ -281,36 +268,29 @@ export default function CouponDashboard() {
           </CardContent>
         </Card>
       ) : (
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="show"
-          className="space-y-8"
-        >
+        <div className="space-y-8">
           {/* Stat cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
             {statCards.map((stat, idx) => (
-              <motion.div key={idx} variants={itemVariants}>
-                <Card className="glass-card hover:-translate-y-1 transition-transform duration-300">
-                  <CardContent className="p-5 flex items-center gap-4">
-                    <div className={cn("w-12 h-12 rounded-full flex items-center justify-center shrink-0", stat.bg)}>
-                      <stat.icon className={cn("w-6 h-6", stat.color)} />
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground font-medium">{stat.title}</p>
-                      <p className={cn("text-2xl font-bold font-display tracking-tight", stat.color)}>
-                        {stat.value}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
+              <Card key={idx} className="glass-card hover:-translate-y-1 transition-transform duration-300">
+                <CardContent className="p-5 flex items-center gap-4">
+                  <div className={cn("w-12 h-12 rounded-full flex items-center justify-center shrink-0", stat.bg)}>
+                    <stat.icon className={cn("w-6 h-6", stat.color)} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground font-medium">{stat.title}</p>
+                    <p className={cn("text-2xl font-bold font-display tracking-tight", stat.color)}>
+                      {stat.value}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
             {/* Coupon list */}
-            <motion.div variants={itemVariants} className="xl:col-span-2 flex flex-col gap-4">
+            <div className="xl:col-span-2 flex flex-col gap-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Ticket className="w-5 h-5 text-primary" />
@@ -321,14 +301,14 @@ export default function CouponDashboard() {
               {recentCoupons.map((c) => (
                 <CouponCard key={c.id} coupon={c} />
               ))}
-            </motion.div>
+            </div>
 
             {/* Sport breakdown */}
-            <motion.div variants={itemVariants} className="xl:col-span-1">
+            <div className="xl:col-span-1">
               <SportBreakdown coupons={recentCoupons} />
-            </motion.div>
+            </div>
           </div>
-        </motion.div>
+        </div>
       )}
     </div>
   );
