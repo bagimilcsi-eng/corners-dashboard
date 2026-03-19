@@ -1,7 +1,6 @@
 """
 Coupon Bot
-- The Odds API: szorzók és meccsek
-- SofaScore: H2H + forma megerősítés
+- SofaScore: szorzók, H2H + forma megerősítés
 - Cél: ~2.0 összesített szorzó, 2-3 meccs/szelvény
 - Küldési ablak: 08:00-20:00 (Budapest)
 """
@@ -32,7 +31,6 @@ logger = logging.getLogger(__name__)
 
 COUPON_BOT_TOKEN = os.environ["COUPON_BOT_TOKEN"]
 COUPON_CHAT_ID = os.environ.get("COUPON_CHAT_ID", "")
-ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")  # no longer used for picks
 SUPABASE_DB_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
 SOFASCORE_BASE = "https://api.sofascore.com/api/v1"
