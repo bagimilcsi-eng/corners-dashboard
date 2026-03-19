@@ -210,6 +210,14 @@ def odds_get(path, params=None):
         r = requests.get(f"{ODDS_API_BASE}{path}", params=p, timeout=12)
         if r.ok:
             return r.json()
+        try:
+            err = r.json()
+            if err.get("error_code") == "OUT_OF_USAGE_CREDITS":
+                logger.warning("⚠️ Odds API kvóta kimerült! Eredmények nem frissíthetők automatikusan.")
+                return None
+        except Exception:
+            pass
+        logger.error(f"Odds API HTTP {r.status_code} {path}")
     except Exception as e:
         logger.error(f"Odds API error {path}: {e}")
     return None
@@ -652,6 +660,51 @@ async def cmd_szelveny(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await scan_and_send(context, force=True)
 
 
+async def cmd_folyamatban(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    pending = get_pending_coupons()
+    if not pending:
+        await update.message.reply_text("Nincs folyamatban lévő szelvény.")
+        return
+    lines = []
+    for c in pending:
+        picks = c["picks"]
+        pick_str = ", ".join(p["pick_name"] for p in picks)
+        lines.append(f"#{c['coupon_number']:03d} — {pick_str} ({c['combined_odds']:.2f}x)")
+    await update.message.reply_text("📋 Folyamatban:\n" + "\n".join(lines))
+
+
+async def cmd_lezar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manuális lezárás: /lezar 3 win  vagy  /lezar 3 loss"""
+    args = context.args
+    if len(args) < 2 or args[1] not in ("win", "loss", "nyert", "vesztett"):
+        await update.message.reply_text(
+            "Használat: /lezar <szelvényszám> <win|loss>\nPl: /lezar 3 win"
+        )
+        return
+    try:
+        number = int(args[0])
+    except ValueError:
+        await update.message.reply_text("A szelvényszámnak számnak kell lennie.")
+        return
+
+    result_val = "win" if args[1] in ("win", "nyert") else "loss"
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id FROM coupons WHERE coupon_number=%s AND result IS NULL", (number,))
+            row = cur.fetchone()
+            if not row:
+                await update.message.reply_text(f"#{number:03d} nem található vagy már le van zárva.")
+                return
+            coupon_id = row[0]
+        conn.commit()
+
+    update_coupon_result(coupon_id, result_val)
+    emoji = "✅ NYERT" if result_val == "win" else "❌ VESZTETT"
+    await update.message.reply_text(f"#{number:03d} manuálisan lezárva: {emoji}")
+    logger.info(f"Szelvény #{number:03d} manuálisan lezárva: {result_val}")
+
+
 async def post_init(app):
     init_db()
     scheduler = AsyncIOScheduler(timezone="UTC")
@@ -672,6 +725,8 @@ def main():
     )
     application.add_handler(CommandHandler("start", cmd_start))
     application.add_handler(CommandHandler("szelveny", cmd_szelveny))
+    application.add_handler(CommandHandler("folyamatban", cmd_folyamatban))
+    application.add_handler(CommandHandler("lezar", cmd_lezar))
     application.run_polling()
 
 
