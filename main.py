@@ -70,23 +70,46 @@ def sofascore_fetch_events(target_date: str) -> list:
         return []
 
 
-def sofascore_fetch_h2h(event_id: int) -> tuple[int, int]:
+def sofascore_fetch_h2h(event_id: int, home_name: str = "", away_name: str = "") -> tuple[int, int]:
     """
-    H2H összesítő lekérése egy meccs ID alapján.
-    Visszaad: (home_wins, total) a teamDuel adatokból.
+    H2H utolsó 5 meccs lekérése.
+    Visszaad: (home_wins, 5) ha van elég adat, (0, 0) ha nincs minimum 5 H2H meccs.
     """
     url = f"https://www.sofascore.com/api/v1/event/{event_id}/h2h"
     try:
         resp = requests.get(url, headers=SOFASCORE_HEADERS, timeout=8)
         if resp.status_code != 200:
             return 0, 0
-        duel = resp.json().get("teamDuel")
+        data = resp.json()
+
+        # Egyedi H2H meccsek listája
+        events = data.get("events", [])
+        finished = [e for e in events if e.get("status", {}).get("type", "").lower() == "finished"]
+
+        if len(finished) >= 5 and home_name:
+            last5 = finished[:5]
+            home_wins = 0
+            for e in last5:
+                h = e.get("homeTeam", {}).get("name", "")
+                a = e.get("awayTeam", {}).get("name", "")
+                hs = e.get("homeScore", {}).get("current", 0) or 0
+                as_ = e.get("awayScore", {}).get("current", 0) or 0
+                if home_name.lower() in h.lower() and hs > as_:
+                    home_wins += 1
+                elif home_name.lower() in a.lower() and as_ > hs:
+                    home_wins += 1
+            return home_wins, 5
+
+        # Fallback: teamDuel összesítő
+        duel = data.get("teamDuel")
         if not duel:
             return 0, 0
         home_wins = duel.get("homeWins", 0)
         away_wins = duel.get("awayWins", 0)
         draws = duel.get("draws", 0)
         total = home_wins + away_wins + draws
+        if total < 5:
+            return 0, 0
         return home_wins, total
     except Exception as e:
         logger.error(f"H2H fetch hiba: {e}")
@@ -217,7 +240,39 @@ def form_bar(wins: int, total: int) -> str:
     return "●" * filled + "○" * (5 - filled)
 
 
-MIN_FORM_MATCHES = 5  # Minimum forma meccs a megbízható elemzéshez
+def get_player_first_set_rate(
+    player_name: str, all_events: list, last: int = 10
+) -> tuple[int, int]:
+    """Játékos első szett megnyerési aránya a napi meccsek alapján."""
+    wins = 0
+    total = 0
+    for e in all_events:
+        if e.get("status", {}).get("type", "").lower() != "finished":
+            continue
+        home = e.get("homeTeam", {}).get("name", "")
+        away = e.get("awayTeam", {}).get("name", "")
+        if (
+            player_name.lower() not in home.lower()
+            and player_name.lower() not in away.lower()
+        ):
+            continue
+        hs1 = e.get("homeScore", {}).get("period1")
+        as1 = e.get("awayScore", {}).get("period1")
+        if hs1 is None or as1 is None:
+            continue
+        is_home = player_name.lower() in home.lower()
+        total += 1
+        if is_home and hs1 > as1:
+            wins += 1
+        elif not is_home and as1 > hs1:
+            wins += 1
+        if total >= last:
+            break
+    return wins, total
+
+
+MIN_FORM_MATCHES = 10  # Minimum 10 forma meccs kötelező
+MIN_H2H_MATCHES = 5   # Minimum 5 H2H meccs kötelező
 STRONG_THRESHOLD = 25  # Erős tipp küszöb
 
 
@@ -228,43 +283,53 @@ def calculate_tip(
     home_form_total: int,
     away_form_wins: int,
     away_form_total: int,
+    home_fs_wins: int = 0,
+    home_fs_total: int = 0,
+    away_fs_wins: int = 0,
+    away_fs_total: int = 0,
 ) -> tuple[str, str, float]:
     """
     Tipp kiszámítása pontozással. Visszaad: (winner, bizalom, score).
 
-    Megbízhatósági feltételek:
-    - Legalább MIN_FORM_MATCHES forma meccs mindkét játékoshoz
-    - Ha van H2H adat (≥3 meccs) ÉS forma adat, a kettőnek egyező irányt kell mutatnia
-    - Pontszám legalább ±STRONG_THRESHOLD az Erős tipphez
+    Feltételek:
+    - Min. 10 forma meccs mindkét játékoshoz
+    - Min. 5 H2H meccs kötelező (nélküle nincs tipp)
+    - H2H és forma irányának egyeznie kell
+    - Első szett arány bónusz komponens
     """
     score = 0.0
 
-    # Forma arányok
-    home_rate = (home_form_wins / home_form_total) if home_form_total > 0 else 0.5
-    away_rate = (away_form_wins / away_form_total) if away_form_total > 0 else 0.5
-
-    # Minimum forma adat ellenőrzés
+    # Minimum 10 forma meccs kötelező
     if home_form_total < MIN_FORM_MATCHES or away_form_total < MIN_FORM_MATCHES:
-        return "uncertain", "🔴 Kevés forma adat", score
+        return "uncertain", "🔴 Kevés forma adat (min. 10)", score
 
-    # H2H komponens
-    h2h_score = 0.0
-    has_h2h = h2h_total >= 3
-    if has_h2h:
-        h2h_rate = (h2h_home_wins / h2h_total) - 0.5
-        h2h_score = h2h_rate * 40
+    # Minimum 5 H2H meccs kötelező
+    if h2h_total < MIN_H2H_MATCHES:
+        return "uncertain", "🔴 Kevés H2H adat (min. 5)", score
 
-    # Forma komponens
+    # Forma arányok
+    home_rate = home_form_wins / home_form_total
+    away_rate = away_form_wins / away_form_total
+
+    # H2H komponens (utolsó 5 alapján, súly: 40)
+    h2h_rate = (h2h_home_wins / h2h_total) - 0.5
+    h2h_score = h2h_rate * 40
+
+    # Forma komponens (súly: 30)
     form_score = (home_rate - away_rate) * 30
 
-    # H2H és forma irány egyezés (ha mindkettő rendelkezésre áll)
-    if has_h2h:
-        h2h_favors_home = h2h_score > 0
-        form_favors_home = form_score > 0
-        if h2h_favors_home != form_favors_home:
-            return "uncertain", "🔴 Ellentmondó jelek", score
+    # Első szett komponens (ha van elég adat, súly: 20)
+    first_set_score = 0.0
+    if home_fs_total >= 5 and away_fs_total >= 5:
+        home_fs_rate = home_fs_wins / home_fs_total
+        away_fs_rate = away_fs_wins / away_fs_total
+        first_set_score = (home_fs_rate - away_fs_rate) * 20
 
-    score = h2h_score + form_score
+    # H2H és forma irányának egyeznie kell
+    if (h2h_score > 0) != (form_score > 0):
+        return "uncertain", "🔴 Ellentmondó jelek (H2H vs forma)", score
+
+    score = h2h_score + form_score + first_set_score
 
     if score >= STRONG_THRESHOLD:
         return "home", "🟢 Erős tipp", score
@@ -469,14 +534,18 @@ def build_tip_message(
     # Szorzók lekérése
     odds = sofascore_fetch_odds(event_id) if event_id else None
 
-    # H2H
+    # H2H – utolsó 5 kötelező
     h2h_home_wins, h2h_total = 0, 0
     if event_id:
-        h2h_home_wins, h2h_total = sofascore_fetch_h2h(event_id)
+        h2h_home_wins, h2h_total = sofascore_fetch_h2h(event_id, home, away)
 
-    # Forma
-    home_w, home_t = get_player_recent_form(home, all_events)
-    away_w, away_t = get_player_recent_form(away, all_events)
+    # Forma – utolsó 10 kötelező
+    home_w, home_t = get_player_recent_form(home, all_events, last=10)
+    away_w, away_t = get_player_recent_form(away, all_events, last=10)
+
+    # Első szett arány
+    home_fs_w, home_fs_t = get_player_first_set_rate(home, all_events, last=10)
+    away_fs_w, away_fs_t = get_player_first_set_rate(away, all_events, last=10)
 
     winner, confidence, score = calculate_tip(
         h2h_home_wins,
@@ -485,6 +554,10 @@ def build_tip_message(
         home_t,
         away_w,
         away_t,
+        home_fs_w,
+        home_fs_t,
+        away_fs_w,
+        away_fs_t,
     )
 
     # Csak Erős tippeket küldünk
@@ -529,11 +602,7 @@ def build_tip_message(
     else:
         tip_str = f"🏓 *Tipp: {away}* győz"
 
-    h2h_str = (
-        f"{h2h_home_wins}–{h2h_total - h2h_home_wins}"
-        if h2h_total >= 2
-        else "nincs adat"
-    )
+    h2h_str = f"{h2h_home_wins}–{h2h_total - h2h_home_wins}" if h2h_total >= 5 else "nincs adat"
 
     if odds:
         odds_str = (
@@ -544,19 +613,30 @@ def build_tip_message(
     else:
         odds_str = "💰 Szorzó: _nem elérhető_"
 
-    msg = "\n".join(
-        [
-            f"🔶 *{home}* vs *{away}*",
-            f"📍 {league} ({category}) | 🕐 {time_str}",
-            f"",
-            odds_str,
-            f"🔁 H2H: {h2h_str}",
-            f"📈 Forma: {home} {form_bar(home_w, home_t)} | {away} {form_bar(away_w, away_t)}",
-            f"",
-            f"{tip_str}",
-            f"{confidence} (pontszám: {score:+.1f})",
-        ]
-    )
+    # Első szett sor (csak ha van elég adat)
+    if home_fs_t >= 5 and away_fs_t >= 5:
+        home_fs_pct = round(home_fs_w / home_fs_t * 100)
+        away_fs_pct = round(away_fs_w / away_fs_t * 100)
+        first_set_str = f"1️⃣ 1. szett: {home} *{home_fs_pct}%* | {away} *{away_fs_pct}%*"
+    else:
+        first_set_str = None
+
+    lines = [
+        f"🔶 *{home}* vs *{away}*",
+        f"📍 {league} ({category}) | 🕐 {time_str}",
+        f"",
+        odds_str,
+        f"🔁 H2H (utolsó 5): {h2h_str}",
+        f"📈 Forma (utolsó 10): {home} {form_bar(home_w, home_t)} | {away} {form_bar(away_w, away_t)}",
+    ]
+    if first_set_str:
+        lines.append(first_set_str)
+    lines += [
+        f"",
+        f"{tip_str}",
+        f"{confidence} (pontszám: {score:+.1f})",
+    ]
+    msg = "\n".join(lines)
     return msg, tip_odds, tip_meta
 
 
