@@ -218,7 +218,7 @@ def form_bar(wins: int, total: int) -> str:
 
 
 MIN_FORM_MATCHES = 5  # Minimum forma meccs a megbízható elemzéshez
-STRONG_THRESHOLD = 20  # Erős tipp küszöb
+STRONG_THRESHOLD = 25  # Erős tipp küszöb
 
 
 def calculate_tip(
