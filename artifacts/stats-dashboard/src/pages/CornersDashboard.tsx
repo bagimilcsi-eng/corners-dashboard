@@ -217,12 +217,20 @@ export default function CornersDashboard() {
           <h1 className="text-xl font-bold text-gray-800">⚽ Szöglet Bot Statisztika</h1>
           <p className="text-xs text-gray-400 mt-0.5">Over/Under 9.5 szöglet tippek</p>
         </div>
-        <a
-          href={import.meta.env.BASE_URL || "/"}
-          className="text-sm text-blue-600 hover:underline"
-        >
-          🏓 Asztalitenisz →
-        </a>
+        <div className="flex gap-4">
+          <a
+            href={import.meta.env.BASE_URL || "/"}
+            className="text-sm text-blue-600 hover:underline"
+          >
+            🏓 Asztalitenisz →
+          </a>
+          <a
+            href={`${import.meta.env.BASE_URL || "/"}coupons`}
+            className="text-sm text-blue-600 hover:underline"
+          >
+            🎯 Szelvény →
+          </a>
+        </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-6">

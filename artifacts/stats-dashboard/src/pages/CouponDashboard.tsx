@@ -1,6 +1,32 @@
 import { useCouponStats, type Coupon, type CouponPick } from "@/hooks/use-coupons";
 import { format } from "date-fns";
 import { hu } from "date-fns/locale";
+import { motion } from "framer-motion";
+import {
+  Trophy,
+  TrendingUp,
+  Target,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  RefreshCcw,
+  BarChart3,
+  Ticket,
+  Activity,
+} from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { cn, formatPercentage, formatROI } from "@/lib/utils";
+
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.1 } },
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  show: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } },
+};
 
 const SPORT_EMOJI: Record<string, string> = {
   soccer: "⚽",
@@ -13,139 +39,297 @@ const SPORT_EMOJI: Record<string, string> = {
   mma: "🥊",
 };
 
-function StatCard({ label, value, sub, color }: {
-  label: string; value: string | number; sub?: string; color?: string;
-}) {
-  return (
-    <div className="bg-white rounded-2xl shadow p-5 flex flex-col gap-1">
-      <span className="text-xs text-gray-500 font-medium uppercase tracking-wide">{label}</span>
-      <span className={`text-3xl font-bold ${color ?? "text-gray-800"}`}>{value}</span>
-      {sub && <span className="text-sm text-gray-400">{sub}</span>}
-    </div>
-  );
-}
-
 function PickRow({ pick }: { pick: CouponPick }) {
   const emoji = SPORT_EMOJI[pick.sport] ?? "🏅";
-  const dt = format(new Date(pick.start_timestamp * 1000), "MM.dd HH:mm", { locale: hu });
-  let badge = null;
-  if (pick.result === "win") badge = <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-bold">✅ NYE</span>;
-  else if (pick.result === "loss") badge = <span className="px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold">❌ VES</span>;
-  else badge = <span className="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-bold">⏳</span>;
+  const dt = format(new Date(pick.start_timestamp * 1000), "MMM d. HH:mm", { locale: hu });
 
   return (
-    <div className="flex items-center justify-between gap-2 py-1.5 border-b border-gray-50 last:border-0">
+    <div className="flex items-center justify-between gap-2 py-2 border-b border-border/30 last:border-0">
       <div className="flex items-center gap-2 min-w-0">
-        <span>{emoji}</span>
+        <span className="text-base">{emoji}</span>
         <div className="min-w-0">
-          <span className="font-semibold text-gray-800 text-sm">{pick.pick_name}</span>
-          {pick.sofa_confirmed && <span className="ml-1 text-xs text-green-600">✔</span>}
-          <p className="text-xs text-gray-400 truncate">{pick.home} vs {pick.away} · {dt}</p>
+          <div className="flex items-center gap-1">
+            <span className="font-semibold text-sm text-foreground truncate">
+              {pick.pick_name}
+            </span>
+            {pick.sofa_confirmed && (
+              <span className="text-xs text-success">✔</span>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground truncate">
+            {pick.home} vs {pick.away} · {dt}
+          </p>
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <span className="font-mono text-sm font-bold text-blue-700">@{Number(pick.odds).toFixed(2)}</span>
-        {badge}
+        <span className="font-mono text-sm font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md">
+          @{Number(pick.odds).toFixed(2)}
+        </span>
+        {pick.result === "win" ? (
+          <Badge variant="success" className="text-xs shadow-sm shadow-success/20">Nyert</Badge>
+        ) : pick.result === "loss" ? (
+          <Badge variant="destructive" className="text-xs shadow-sm shadow-destructive/20">Veszett</Badge>
+        ) : (
+          <Badge variant="warning" className="text-xs shadow-sm shadow-warning/20">⏳</Badge>
+        )}
       </div>
     </div>
   );
 }
 
 function CouponCard({ coupon }: { coupon: Coupon }) {
-  const sentDt = format(new Date(coupon.sent_at * 1000), "MM.dd HH:mm", { locale: hu });
-  let resultBadge = null;
-  if (coupon.result === "win") resultBadge = <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 font-bold text-sm">✅ NYERT</span>;
-  else if (coupon.result === "loss") resultBadge = <span className="px-3 py-1 rounded-full bg-red-100 text-red-700 font-bold text-sm">❌ VESZETT</span>;
-  else resultBadge = <span className="px-3 py-1 rounded-full bg-yellow-100 text-yellow-700 font-bold text-sm">⏳ Folyamatban</span>;
+  const sentDt = format(new Date(coupon.sent_at * 1000), "MMM d. HH:mm", { locale: hu });
 
   return (
-    <div className="bg-white rounded-2xl shadow p-5 flex flex-col gap-3 border border-gray-100">
-      <div className="flex items-center justify-between">
-        <div>
-          <span className="font-bold text-gray-700 text-lg">#{String(coupon.coupon_number).padStart(3, "0")}</span>
-          <span className="ml-2 text-xs text-gray-400">{sentDt}</span>
+    <motion.div variants={itemVariants}>
+      <Card className="glass-card hover:-translate-y-0.5 transition-transform duration-300">
+        <CardContent className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Ticket className="w-4 h-4 text-primary" />
+              <span className="font-bold text-foreground">
+                #{String(coupon.coupon_number).padStart(3, "0")}
+              </span>
+              <span className="text-xs text-muted-foreground">{sentDt}</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-mono font-bold text-primary text-lg">
+                {Number(coupon.combined_odds).toFixed(2)}x
+              </span>
+              {coupon.result === "win" ? (
+                <Badge variant="success" className="shadow-lg shadow-success/20">✅ Nyertes</Badge>
+              ) : coupon.result === "loss" ? (
+                <Badge variant="destructive" className="shadow-lg shadow-destructive/20">❌ Vesztes</Badge>
+              ) : (
+                <Badge variant="warning" className="shadow-lg shadow-warning/20">⏳ Folyamatban</Badge>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col">
+            {coupon.picks.map((p, i) => (
+              <PickRow key={i} pick={p} />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
+function SportBreakdown({ coupons }: { coupons: Coupon[] }) {
+  const map: Record<string, { wins: number; total: number; pending: number }> = {};
+
+  for (const c of coupons) {
+    for (const p of c.picks) {
+      const sport = p.sport;
+      if (!map[sport]) map[sport] = { wins: 0, total: 0, pending: 0 };
+      if (c.result === "win") map[sport].wins++;
+      if (c.result != null) map[sport].total++;
+      else map[sport].pending++;
+    }
+  }
+
+  const entries = Object.entries(map).sort((a, b) => b[1].total - a[1].total);
+  if (entries.length === 0) return null;
+
+  return (
+    <Card className="glass-card h-full flex flex-col">
+      <CardHeader className="pb-4 border-b border-border/50">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-5 h-5 text-primary" />
+          <CardTitle>Sportág bontás</CardTitle>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="font-mono font-bold text-blue-700 text-lg">
-            {Number(coupon.combined_odds).toFixed(2)}x
-          </span>
-          {resultBadge}
+      </CardHeader>
+      <CardContent className="p-0">
+        <div className="divide-y divide-border/50">
+          {entries.map(([sport, s]) => {
+            const emoji = SPORT_EMOJI[sport] ?? "🏅";
+            const pct = s.total > 0 ? (s.wins / s.total) * 100 : 0;
+            return (
+              <div key={sport} className="p-5 hover:bg-secondary/30 transition-colors">
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="font-semibold capitalize flex items-center gap-1">
+                    {emoji} {sport}
+                  </h4>
+                  <div className="text-right">
+                    <span className={cn(
+                      "text-xl font-bold font-display",
+                      pct >= 50 ? "text-success" : (pct > 0 ? "text-warning" : "text-muted-foreground")
+                    )}>
+                      {s.total > 0 ? formatPercentage(pct) : "—"}
+                    </span>
+                    <p className="text-xs text-muted-foreground">Nyerési arány</p>
+                  </div>
+                </div>
+                <div className="flex gap-2 h-2 rounded-full overflow-hidden bg-muted">
+                  {s.wins > 0 && <div style={{ width: `${(s.wins / (s.total || 1)) * 100}%` }} className="bg-success transition-all duration-1000" />}
+                  {(s.total - s.wins) > 0 && <div style={{ width: `${((s.total - s.wins) / (s.total || 1)) * 100}%` }} className="bg-destructive transition-all duration-1000" />}
+                </div>
+                <div className="flex justify-between mt-2 text-sm">
+                  <div className="flex items-center gap-1 text-success"><CheckCircle2 className="w-4 h-4" />{s.wins}</div>
+                  <div className="flex items-center gap-1 text-destructive"><XCircle className="w-4 h-4" />{s.total - s.wins}</div>
+                  <div className="flex items-center gap-1 text-warning"><Clock className="w-4 h-4" />{s.pending}</div>
+                </div>
+              </div>
+            );
+          })}
         </div>
-      </div>
-      <div className="flex flex-col">
-        {coupon.picks.map((p, i) => <PickRow key={i} pick={p} />)}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
 export default function CouponDashboard() {
-  const { data, isLoading, error } = useCouponStats();
+  const { data, isLoading, isError, refetch, isFetching } = useCouponStats();
 
   if (isLoading) {
-    return <div className="flex items-center justify-center h-64 text-gray-400">Betöltés...</div>;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center space-y-4">
+        <div className="relative w-16 h-16">
+          <div className="absolute inset-0 border-4 border-primary/20 rounded-full"></div>
+          <div className="absolute inset-0 border-4 border-primary rounded-full border-t-transparent animate-spin"></div>
+        </div>
+        <p className="text-muted-foreground font-medium animate-pulse">Adatok betöltése...</p>
+      </div>
+    );
   }
-  if (error || !data) {
-    return <div className="flex items-center justify-center h-64 text-red-400">Hiba: {String(error)}</div>;
+
+  if (isError || !data) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <Card className="max-w-md w-full border-destructive/50 bg-destructive/5">
+          <CardContent className="pt-6 flex flex-col items-center text-center space-y-4">
+            <XCircle className="w-12 h-12 text-destructive" />
+            <div className="space-y-2">
+              <h3 className="text-xl font-bold">Hiba történt</h3>
+              <p className="text-muted-foreground">Nem sikerült betölteni a statisztikákat.</p>
+            </div>
+            <button
+              onClick={() => refetch()}
+              className="px-4 py-2 bg-background border border-border rounded-lg hover:bg-muted transition-colors flex items-center gap-2"
+            >
+              <RefreshCcw className="w-4 h-4" />
+              Újrapróbálkozás
+            </button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   const { total, settled, wins, losses, pending, winRate, roi, avgOdds, recentCoupons } = data;
 
+  const statCards = [
+    { title: "Összes szelvény", value: total, icon: Target, color: "text-blue-500", bg: "bg-blue-500/10" },
+    { title: "Nyerési arány", value: settled > 0 ? formatPercentage(winRate) : "—", icon: Trophy, color: "text-yellow-500", bg: "bg-yellow-500/10" },
+    { title: "ROI", value: settled > 0 ? formatROI(roi) : "—", icon: TrendingUp, color: roi >= 0 ? "text-success" : "text-destructive", bg: roi >= 0 ? "bg-success/10" : "bg-destructive/10" },
+    { title: "Átlag szorzó", value: avgOdds != null ? avgOdds.toFixed(2) : "—", icon: BarChart3, color: "text-purple-400", bg: "bg-purple-400/10" },
+    { title: "Nyertes", value: wins, icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
+    { title: "Vesztes", value: losses, icon: XCircle, color: "text-destructive", bg: "bg-destructive/10" },
+    { title: "Folyamatban", value: pending, icon: Clock, color: "text-warning", bg: "bg-warning/10" },
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+    <div className="min-h-screen p-4 md:p-8 max-w-[1600px] mx-auto space-y-8">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-gray-800">🎯 Szelvény Bot Statisztika</h1>
-          <p className="text-xs text-gray-400 mt-0.5">~2.0x kombinált szorzó · 2-3 meccs/szelvény</p>
+          <h1 className="text-3xl md:text-4xl font-bold font-display bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
+            Szelvény Bot Statisztikák
+          </h1>
+          <p className="text-muted-foreground mt-1 flex items-center gap-2">
+            <Activity className="w-4 h-4 text-primary" />
+            ~2.0x kombinált szorzó · 2-3 meccs/szelvény
+          </p>
         </div>
-        <div className="flex gap-3 text-sm">
-          <a href={`${import.meta.env.BASE_URL || "/"}corners`} className="text-blue-600 hover:underline">⚽ Szöglet →</a>
-          <a href={import.meta.env.BASE_URL || "/"} className="text-blue-600 hover:underline">🏓 Asztalitenisz →</a>
+        <div className="flex items-center gap-3">
+          <a
+            href={import.meta.env.BASE_URL || "/"}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
+          >
+            🏓 Asztalitenisz →
+          </a>
+          <a
+            href={`${import.meta.env.BASE_URL || "/"}corners`}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
+          >
+            ⚽ Szöglet →
+          </a>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm"
+          >
+            <RefreshCcw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />
+            <span className="font-medium text-sm">
+              {isFetching ? "Frissítés..." : "Frissítés"}
+            </span>
+          </button>
         </div>
-      </header>
+      </div>
 
-      <main className="max-w-3xl mx-auto px-4 py-6 flex flex-col gap-6">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          <StatCard label="Összes" value={total} sub={`${pending} folyamatban`} />
-          <StatCard
-            label="Nyerési arány"
-            value={settled > 0 ? `${winRate}%` : "—"}
-            sub={`${wins}W / ${losses}L`}
-            color={settled === 0 ? "text-gray-400" : wins / settled >= 0.5 ? "text-green-600" : "text-red-500"}
-          />
-          <StatCard
-            label="ROI"
-            value={settled > 0 ? `${roi}%` : "—"}
-            sub="lezárt szelvények"
-            color={settled === 0 ? "text-gray-400" : roi >= 0 ? "text-green-600" : "text-red-500"}
-          />
-          <StatCard
-            label="Átlag szorzó"
-            value={avgOdds != null ? avgOdds.toFixed(2) : "—"}
-            sub="kombinált"
-            color="text-purple-600"
-          />
-          <StatCard label="Nyertes" value={wins} color="text-green-600" />
-          <StatCard label="Vesztes" value={losses} color="text-red-500" />
-        </div>
-
-        <div>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">
-            Szelvények ({total})
-          </h2>
-          {recentCoupons.length === 0 ? (
-            <div className="text-center text-gray-400 py-16">
-              Még nincs szelvény. A bot automatikusan keresi a megfelelő meccseket.
+      {total === 0 ? (
+        <Card className="border-dashed border-2 bg-transparent">
+          <CardContent className="flex flex-col items-center justify-center py-24 text-center space-y-4">
+            <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center">
+              <Ticket className="w-8 h-8 text-muted-foreground" />
             </div>
-          ) : (
-            <div className="flex flex-col gap-4">
+            <h3 className="text-xl font-bold">Még nincsenek szelvények</h3>
+            <p className="text-muted-foreground max-w-md">
+              A bot még nem küldött szelvényt. Küldj <span className="font-mono text-primary">/szelveny</span> parancsot Telegramon, vagy várj az automatikus keresésre.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <motion.div
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+          className="space-y-8"
+        >
+          {/* Stat cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
+            {statCards.map((stat, idx) => (
+              <motion.div key={idx} variants={itemVariants}>
+                <Card className="glass-card hover:-translate-y-1 transition-transform duration-300">
+                  <CardContent className="p-5 flex items-center gap-4">
+                    <div className={cn("w-12 h-12 rounded-full flex items-center justify-center shrink-0", stat.bg)}>
+                      <stat.icon className={cn("w-6 h-6", stat.color)} />
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground font-medium">{stat.title}</p>
+                      <p className={cn("text-2xl font-bold font-display tracking-tight", stat.color)}>
+                        {stat.value}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+            {/* Coupon list */}
+            <motion.div variants={itemVariants} className="xl:col-span-2 flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Ticket className="w-5 h-5 text-primary" />
+                  <h2 className="font-bold text-lg">Szelvények ({total})</h2>
+                </div>
+                <Badge variant="secondary" className="font-mono">{recentCoupons.length} utolsó</Badge>
+              </div>
               {recentCoupons.map((c) => (
                 <CouponCard key={c.id} coupon={c} />
               ))}
-            </div>
-          )}
-        </div>
-      </main>
+            </motion.div>
+
+            {/* Sport breakdown */}
+            <motion.div variants={itemVariants} className="xl:col-span-1">
+              <SportBreakdown coupons={recentCoupons} />
+            </motion.div>
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }
