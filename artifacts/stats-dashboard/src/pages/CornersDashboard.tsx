@@ -185,6 +185,8 @@ export default function CornersDashboard() {
     { title: "Átlag szorzó", value: avgOdds != null ? avgOdds.toFixed(2) : "—", icon: BarChart3, color: "text-purple-400", bg: "bg-purple-400/10" },
     { title: "Over tippek", value: `${overTips.length} (${overWins}W)`, icon: ArrowUp, color: "text-blue-400", bg: "bg-blue-400/10" },
     { title: "Under tippek", value: `${underTips.length} (${underWins}W)`, icon: ArrowDown, color: "text-purple-400", bg: "bg-purple-400/10" },
+    { title: "Nyertes", value: wins, icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
+    { title: "Vesztes", value: losses, icon: XCircle, color: "text-destructive", bg: "bg-destructive/10" },
     { title: "Folyamatban", value: pending.length, icon: Clock, color: "text-warning", bg: "bg-warning/10" },
   ];
 
@@ -292,7 +294,7 @@ export default function CornersDashboard() {
       ) : (
         <div className="space-y-8">
           {/* Stat cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-9 gap-4">
             {statCards.map((stat, idx) => (
               <Card key={idx} className="glass-card hover:-translate-y-1 transition-transform duration-300">
                 <CardContent className="p-5 flex items-center gap-4">
