@@ -14,6 +14,7 @@ export interface CornerTip {
   expected_corners: number;
   home_avg: number | null;
   away_avg: number | null;
+  odds: number | null;
   sent_at: number;
   result: "win" | "loss" | null;
   actual_corners: number | null;

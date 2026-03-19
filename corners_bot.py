@@ -323,7 +323,8 @@ def analyze_fixture(event: dict) -> dict | None:
 
     odds = fetch_corner_odds(event_id, tip)
     if odds is None:
-        logger.info(f"Nincs szöglet odds: {home_name} vs {away_name}")
+        logger.info(f"Nincs szöglet odds: {home_name} vs {away_name} — alapértelmezett 1.62 használva")
+        odds = 1.62
     elif odds < MIN_CORNER_ODDS:
         logger.info(f"Szorzó túl alacsony ({odds}): {home_name} vs {away_name}")
         return None

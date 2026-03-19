@@ -181,6 +181,19 @@ export default function CornersDashboard() {
   const overWins = overTips.filter((t) => t.result === "win").length;
   const underWins = underTips.filter((t) => t.result === "win").length;
 
+  const oddsSettled = settled.filter((t) => t.odds != null);
+  const avgOdds =
+    oddsSettled.length > 0
+      ? (oddsSettled.reduce((s, t) => s + Number(t.odds), 0) / oddsSettled.length).toFixed(2)
+      : null;
+
+  let roiSum = 0;
+  for (const t of settled) {
+    const o = t.odds != null ? Number(t.odds) : 1.62;
+    roiSum += t.result === "win" ? o - 1 : -1;
+  }
+  const roi = settled.length > 0 ? ((roiSum / settled.length) * 100).toFixed(1) : null;
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-gray-400">
@@ -213,7 +226,7 @@ export default function CornersDashboard() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-6">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           <StatCard
             label="Összes tipp"
             value={tips.length}
@@ -230,6 +243,24 @@ export default function CornersDashboard() {
                 ? "text-green-600"
                 : "text-red-500"
             }
+          />
+          <StatCard
+            label="ROI"
+            value={roi != null ? `${roi}%` : "—"}
+            sub="lezárt tippek alapján"
+            color={
+              roi == null
+                ? "text-gray-400"
+                : Number(roi) >= 0
+                ? "text-green-600"
+                : "text-red-500"
+            }
+          />
+          <StatCard
+            label="Átlag szorzó"
+            value={avgOdds != null ? avgOdds : "—"}
+            sub="lezárt tippek"
+            color="text-purple-600"
           />
           <StatCard
             label="Over tippek"
