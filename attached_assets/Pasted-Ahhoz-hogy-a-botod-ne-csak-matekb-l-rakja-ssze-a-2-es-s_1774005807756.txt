@@ -1,0 +1,19 @@
+Ahhoz, hogy a botod ne csak "matekból" rakja össze a 2-es szorzót, hanem valódi értéket is találjon, szűrőket kell beépítened a kiválasztási folyamatba. A vakon választott 1.40 + 1.45-ös szelvények hosszú távon a bukás biztos útjai a fogadóiroda árrése (margin) miatt.
+Íme a 3 leghatékonyabb módszer a tippek minőségének javítására:
+1. Statisztikai szűrés (H2H és Forma)
+Ne engedd a botnak, hogy bármit kiválasszon, ami kiadja a 2-es szorzót. Adj hozzá feltételeket:
+Gólok száma: Ha "Over 2.5" tippet keres, csak olyan meccset választhasson, ahol mindkét csapat utolsó 5 meccsének legalább 80%-a over volt.
+Győzelem: Csak olyan esélyest válasszon 1.40-ért, amelyik hazai pályán veretlen az utolsó 3 meccsen, az ellenfele pedig idegenben nem nyert.
+2. "Value" keresés (Piaci mozgás)
+A minőségi tipp ott van, ahol az iroda elárazta az eseményt.
+Droping Odds figyelése: Ha egy 1.60-as szorzó leesik 1.40-re, az azt jelenti, hogy "okos pénz" vagy fontos hír (sérülés) mozgatta meg. A botod figyelje ezeket a trendeket, és csak a csökkenő trendű meccsekből válogasson.
+Záró odds vs. Nyitó odds: Tanítsd meg a botnak, hogy hasonlítsa össze több iroda kínálatát, és azt válassza, ahol a legmagasabb a szorzó az átlaghoz képest.
+3. "Safe-bet" algoritmus (Poisson-eloszlás)
+Ez egy matematikai modell, ami a csapatok korábbi rúgott/kapott góljai alapján kiszámolja a várható végeredmény valószínűségét.
+Ha a bot kiszámolja, hogy a hazai győzelem esélye 75%, de az iroda által kínált 1.45-ös szorzó csak 69%-os valószínűséget tükröz, akkor az egy minőségi tipp.
+4. Kizárási lista (A "Blacklist")
+A minőség sokszor azon múlik, mit nem teszünk meg:
+Barátságos meccsek: Tiltasd le a botnak ezeket, mert kiszámíthatatlanok.
+Alacsony likviditású ligák: (Pl. Üzbég 2. osztály), ahol egy-egy hír sokkal nagyobbat üt, mint a statisztika.
+Derbik: A rangadókon a statisztika sokszor borul az érzelmek miatt.
+Milyen logikával választja ki a botod jelenleg a meccseket: csak az oddsokat nézi, vagy van már benne valamilyen alap statisztikai szűrő?
