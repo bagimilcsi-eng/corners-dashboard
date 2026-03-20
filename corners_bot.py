@@ -61,7 +61,7 @@ API_DELAY_SEC = 0.4
 MIN_CORNER_ODDS = 1.60
 MIN_WING_CORNERS = 4.5  # min CF hogy "wing-play" legyen
 OVER_85_MIN_RATE = 0.60 # min hit rate az over 8.5-re
-MIN_CONFIDENCE = 35     # legalább ennyi pont kell hogy kimenjen a tipp
+MIN_CONFIDENCE = 84     # legalább ennyi pont kell hogy kimenjen a tipp
 
 _corner_cache: dict = {}
 _event_corner_cache: dict = {}  # event_id -> (h, a) — megakadályozza a dupla API hívást
