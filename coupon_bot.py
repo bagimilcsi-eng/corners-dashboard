@@ -53,7 +53,7 @@ SOFASCORE_HEADERS = {
     "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8",
 }
 
-MIN_PICK_ODDS = 1.35
+MIN_PICK_ODDS = 1.28
 MAX_PICK_ODDS = 1.85
 TARGET_COMBINED = 2.00
 MIN_COMBINED = 1.75
