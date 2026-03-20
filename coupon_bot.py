@@ -595,28 +595,33 @@ def _sync_collect_picks():
 def build_coupon(candidates):
     """
     Build a 2-3 pick coupon with combined odds closest to TARGET_COMBINED (~2.0).
-    Diversify by sport.
+    Diversify by sport (max 2 per sport), different events only.
     """
     seen_events = set()
-    seen_sports = set()
+    sport_count: dict = {}
     pool = []
 
     for p in candidates:
         if p["event_id"] in seen_events:
             continue
-        if p["sport"] in seen_sports:
+        sport = p["sport"]
+        if sport_count.get(sport, 0) >= 3:
             continue
         pool.append(p)
         seen_events.add(p["event_id"])
-        seen_sports.add(p["sport"])
-        if len(pool) >= 6:
+        sport_count[sport] = sport_count.get(sport, 0) + 1
+        if len(pool) >= 12:
             break
+
+    logger.info(f"Pool mérete: {len(pool)} pick | sportok: { {p['sport'] for p in pool} }")
+    for p in pool:
+        logger.info(f"  Pool pick: {p['home']} vs {p['away']} [{p['sport']}] @{p['odds']}")
 
     best = None
     best_diff = 999
 
     for n in [2, 3]:
-        for combo in combinations(pool[:6], n):
+        for combo in combinations(pool[:12], n):
             combined = 1.0
             for p in combo:
                 combined *= p["odds"]
@@ -627,6 +632,23 @@ def build_coupon(candidates):
             if diff < best_diff:
                 best_diff = diff
                 best = (list(combo), combined)
+
+    if best is None:
+        # Legjobb közelítés logolása
+        best_approx = None
+        best_approx_diff = 999
+        for n in [2, 3]:
+            for combo in combinations(pool[:12], n):
+                combined = 1.0
+                for p in combo:
+                    combined *= p["odds"]
+                combined = round(combined, 2)
+                diff = abs(combined - TARGET_COMBINED)
+                if diff < best_approx_diff:
+                    best_approx_diff = diff
+                    best_approx = (combined, [p['odds'] for p in combo])
+        if best_approx:
+            logger.info(f"Legjobb közelítés: {best_approx[0]}x (odds: {best_approx[1]}) — kívül van {MIN_COMBINED}-{MAX_COMBINED} tartományon")
 
     return best
 
