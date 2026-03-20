@@ -116,6 +116,22 @@ def sofascore_fetch_h2h(event_id: int, home_name: str = "", away_name: str = "")
         return 0, 0
 
 
+def _parse_choice_odd(c: dict) -> float | None:
+    """Kinyeri a decimal szorzót egy choice objektumból (törtszám vagy decimal mező)."""
+    # 1. decimalValue mező (pl. asztalitenisz)
+    dv = c.get("decimalValue")
+    if dv:
+        try:
+            v = float(dv)
+            if v > 1.0:
+                return round(v, 3)
+        except Exception:
+            pass
+    # 2. fractionalValue mező (pl. "8/11")
+    frac = c.get("fractionalValue", "")
+    return fractional_to_decimal(frac)
+
+
 def sofascore_fetch_odds(event_id: int) -> dict | None:
     """Szorzók lekérése egy meccshez. Visszaad: {'home': float, 'away': float} vagy None."""
     url = f"https://www.sofascore.com/api/v1/event/{event_id}/odds/1/all"
@@ -130,12 +146,15 @@ def sofascore_fetch_odds(event_id: int) -> dict | None:
                 odds_map = {}
                 for c in choices:
                     name = c.get("name", "")
-                    frac = c.get("fractionalValue", "")
-                    decimal_odd = fractional_to_decimal(frac)
-                    if decimal_odd:
-                        odds_map[name] = decimal_odd
+                    odd = _parse_choice_odd(c)
+                    if odd:
+                        odds_map[name] = odd
+                # Elsőként "1"/"2" nevek, fallback: első két choice sorrendben
                 if "1" in odds_map and "2" in odds_map:
                     return {"home": odds_map["1"], "away": odds_map["2"]}
+                ordered = [v for v in odds_map.values()]
+                if len(ordered) >= 2:
+                    return {"home": ordered[0], "away": ordered[1]}
         return None
     except Exception as e:
         logger.error(f"Odds fetch hiba: {e}")
@@ -145,10 +164,14 @@ def sofascore_fetch_odds(event_id: int) -> dict | None:
 def fractional_to_decimal(frac: str) -> float | None:
     """Törtszám odds konvertálása decimálisba. Pl. '8/11' → 1.727"""
     try:
+        if not frac:
+            return None
         if "/" in frac:
             num, den = frac.split("/")
             return round(int(num) / int(den) + 1, 3)
-        return float(frac) + 1
+        v = float(frac)
+        # Ha már decimal (>1), visszadjuk ahogy van
+        return round(v, 3) if v > 1.0 else round(v + 1, 3)
     except Exception:
         return None
 
@@ -628,13 +651,13 @@ def build_tip_message(
         elif winner == "away":
             tip_odds = odds["away"]
 
-    # Szorzó szűrés: ha nincs odds adat, átengedjük
-    if tip_odds is not None and tip_odds < MIN_ODDS:
-        return None, tip_odds, None
-
-    # Ha nincs szorzó, alapértelmezett 1.62-t használunk
+    # Szorzó nélküli tipp kiesik — ne küldjük fake szorzóval
     if tip_odds is None:
-        tip_odds = 1.62
+        return None, None, None
+
+    # Szorzó szűrés: minimum alatt kiesik
+    if tip_odds < MIN_ODDS:
+        return None, tip_odds, None
 
     # Tipp meta adat (mentéshez)
     predicted_name = home if winner == "home" else away
