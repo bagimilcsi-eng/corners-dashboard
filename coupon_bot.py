@@ -42,9 +42,6 @@ SOFASCORE_HEADERS = {
     "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8",
 }
 
-ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
-ODDS_API_BASE = "https://api.the-odds-api.com/v4"
-
 MIN_PICK_ODDS = 1.28
 MAX_PICK_ODDS = 1.85
 TARGET_COMBINED = 2.00
@@ -60,25 +57,6 @@ MAX_TOTAL_EVENTS = 80
 SOFA_SPORTS = [
     "football",
 ]
-
-# Odds API sport kulcsok a nem-futball sportokhoz
-# Ezekhez SofaScore nem ad vissza odds adatot
-ODDS_API_SPORTS = {
-    "basketball": [
-        "basketball_euroleague",
-        "basketball_nba",
-        "basketball_ncaab",
-    ],
-    "ice-hockey": [
-        "icehockey_nhl",
-        "icehockey_sweden_hockey_league",
-        "icehockey_finland_liiga",
-        "icehockey_czech_extraliga",
-    ],
-    "baseball": [
-        "baseball_mlb",
-    ],
-}
 
 SOFA_TO_EMOJI = {
     "football": "⚽",
@@ -569,72 +547,88 @@ def verify_with_sofascore(home_team, away_team, pick_side):
     return None
 
 
-# ── The Odds API (nem-futball sportok) ───────────────────────────────────────
+# ── API-Football odds (multi-bookmaker futball) ──────────────────────────────
 
-def odds_api_get(sport_key: str) -> list:
+FOOTBALL_API_BASE = "https://api-football-v1.p.rapidapi.com/v3"
+FOOTBALL_API_HEADERS = {
+    "x-rapidapi-key": os.environ.get("SPORTS_API_KEY", ""),
+    "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
+}
+
+# Bet ID-k: 1=Match Winner, 5=Goals Over/Under, 8=Asian Handicap
+AFL_BET_MATCH_WINNER = 1
+AFL_BET_GOALS_OU     = 5
+
+
+def fetch_api_football_odds(date_str: str) -> list:
     """
-    Lekéri a következő 48 óra eseményeit The Odds API-ból.
-    Visszaad: nyers events lista [{ id, home_team, away_team, commence_time, bookmakers }]
+    Lekéri az adott napra elérhető futball odds-okat az API-Football-ból.
+    Visszaad: nyers response lista.
     """
-    if not ODDS_API_KEY:
+    sports_key = os.environ.get("SPORTS_API_KEY", "")
+    if not sports_key:
         return []
     try:
-        now_ts = datetime.utcnow().timestamp()
-        params = {
-            "apiKey": ODDS_API_KEY,
-            "regions": "eu,uk",
-            "markets": "h2h,totals",
-            "oddsFormat": "decimal",
-            "dateFormat": "unix",
-        }
-        r = requests.get(f"{ODDS_API_BASE}/sports/{sport_key}/odds/",
-                         params=params, timeout=12)
+        r = requests.get(
+            f"{FOOTBALL_API_BASE}/odds",
+            headers=FOOTBALL_API_HEADERS,
+            params={"date": date_str, "timezone": "UTC"},
+            timeout=15,
+        )
         if not r.ok:
-            logger.warning(f"Odds API {sport_key}: HTTP {r.status_code}")
+            logger.warning(f"API-Football odds [{date_str}]: HTTP {r.status_code}")
             return []
-        events = r.json()
-        # Csak a következő 2–48 órás meccsek
-        return [e for e in events
-                if now_ts + 7200 <= e.get("commence_time", 0) <= now_ts + 48 * 3600]
+        return r.json().get("response", [])
     except Exception as ex:
-        logger.error(f"Odds API hiba ({sport_key}): {ex}")
+        logger.error(f"API-Football odds hiba: {ex}")
         return []
 
 
-def parse_odds_api_event(event: dict, sport_label: str) -> list:
+def parse_api_football_odds_item(item: dict) -> list:
     """
-    Kinyeri a pick jelölteket egy Odds API eseményből.
-    Visszaad lista of {market, outcome_key, pick_label, odds, std, n_bm, line}.
-    Az összes bookmaker átlagát és szórását számítja.
+    Kinyeri a pick jelölteket egy API-Football odds objektumból.
+    Visszaad: [{market, outcome_key, pick_label, odds, std, n_bm, line}]
     """
-    home = event.get("home_team", "")
-    away = event.get("away_team", "")
-    unit = SPORT_UNIT.get(sport_label, "pont")
+    home = item.get("teams", {}).get("home", {}).get("name", "")
+    away = item.get("teams", {}).get("away", {}).get("name", "")
+    if not home or not away:
+        return []
 
-    # Összegyűjtjük bookmaker-enként az odds-okat
     h2h_home_odds, h2h_away_odds = [], []
-    totals_over: dict[float, list] = {}   # line → [odds, ...]
+    totals_over: dict[float, list] = {}
     totals_under: dict[float, list] = {}
 
-    for bm in event.get("bookmakers", []):
-        for market in bm.get("markets", []):
-            key = market.get("key", "")
-            if key == "h2h":
-                for oc in market.get("outcomes", []):
-                    price = oc.get("price", 0)
-                    if oc.get("name") == home:
-                        h2h_home_odds.append(price)
-                    elif oc.get("name") == away:
-                        h2h_away_odds.append(price)
-            elif key == "totals":
-                for oc in market.get("outcomes", []):
-                    line = oc.get("point")
-                    price = oc.get("price", 0)
-                    if line is None:
+    for bm in item.get("bookmakers", []):
+        for bet in bm.get("bets", []):
+            bet_id = bet.get("id")
+            if bet_id == AFL_BET_MATCH_WINNER:
+                for v in bet.get("values", []):
+                    try:
+                        price = float(v.get("odd", 0))
+                    except (ValueError, TypeError):
                         continue
-                    if oc.get("name", "").lower() == "over":
+                    if v.get("value") == "Home":
+                        h2h_home_odds.append(price)
+                    elif v.get("value") == "Away":
+                        h2h_away_odds.append(price)
+            elif bet_id == AFL_BET_GOALS_OU:
+                for v in bet.get("values", []):
+                    raw = v.get("value", "")
+                    try:
+                        price = float(v.get("odd", 0))
+                    except (ValueError, TypeError):
+                        continue
+                    if raw.startswith("Over"):
+                        try:
+                            line = float(raw.split(" ")[1])
+                        except (IndexError, ValueError):
+                            continue
                         totals_over.setdefault(line, []).append(price)
-                    elif oc.get("name", "").lower() == "under":
+                    elif raw.startswith("Under"):
+                        try:
+                            line = float(raw.split(" ")[1])
+                        except (IndexError, ValueError):
+                            continue
                         totals_under.setdefault(line, []).append(price)
 
     picks = []
@@ -659,72 +653,77 @@ def parse_odds_api_event(event: dict, sport_label: str) -> list:
 
     make_pick("home", f"{home} győz", h2h_home_odds, "h2h")
     make_pick("away", f"{away} győz", h2h_away_odds, "h2h")
-
-    for line, odds_list in totals_over.items():
-        make_pick(f"over_{line}", f"Több mint {line} {unit}", odds_list, "totals", line)
-    for line, odds_list in totals_under.items():
-        make_pick(f"under_{line}", f"Kevesebb mint {line} {unit}", odds_list, "totals", line)
+    for line, ol in totals_over.items():
+        make_pick(f"over_{line}", f"Több mint {line} gól", ol, "totals", line)
+    for line, ol in totals_under.items():
+        make_pick(f"under_{line}", f"Kevesebb mint {line} gól", ol, "totals", line)
 
     return picks
 
 
-def collect_odds_api_picks(sent_ids: set) -> list:
+def collect_api_football_picks(sent_ids: set) -> list:
     """
-    Végigmegy az összes Odds API sporton, összegyűjti a jelölt tippeket.
+    API-Football alapú futball pick-gyűjtő.
+    Multi-bookmaker odds → valódi std + n_bm → jobb pontszámítás.
+    Napi 2 API hívás (ma + holnap).
     """
+    from datetime import timedelta
+    now = datetime.utcnow()
+    dates = [now.strftime("%Y-%m-%d"),
+             (now + timedelta(days=1)).strftime("%Y-%m-%d")]
+    now_ts = now.timestamp()
+
     candidates = []
-    now_ts = datetime.utcnow().timestamp()
+    for date_str in dates:
+        items = fetch_api_football_odds(date_str)
+        logger.info(f"API-Football odds [{date_str}]: {len(items)} mérkőzés")
+        for item in items:
+            fixture = item.get("fixture", {})
+            event_id = f"afl_{fixture.get('id', '')}"
+            if event_id in sent_ids:
+                continue
+            start_ts = fixture.get("timestamp", 0)
+            if not (now_ts + 7200 <= start_ts <= now_ts + 48 * 3600):
+                continue
 
-    for sport_label, sport_keys in ODDS_API_SPORTS.items():
-        sport_candidates = []
-        for sport_key in sport_keys:
-            events = odds_api_get(sport_key)
-            logger.info(f"Odds API [{sport_key}]: {len(events)} esemény")
-            for ev in events:
-                event_id = str(ev.get("id", ""))
-                if event_id in sent_ids:
+            home = item.get("teams", {}).get("home", {}).get("name", "")
+            away = item.get("teams", {}).get("away", {}).get("name", "")
+
+            picks = parse_api_football_odds_item(item)
+            if not picks:
+                continue
+
+            best_pick = None
+            best_score = 0
+            for mp in picks:
+                sc = score_pick(mp["odds"], std=mp["std"], n_bm=mp["n_bm"])
+                if sc <= 0:
                     continue
-                picks = parse_odds_api_event(ev, sport_label)
-                if not picks:
-                    continue
+                if sc > best_score:
+                    best_score = sc
+                    best_pick = {
+                        "event_id": event_id,
+                        "sport_key": "football",
+                        "sport": "football",
+                        "home": home,
+                        "away": away,
+                        "market": mp["market"],
+                        "outcome_key": mp["outcome_key"],
+                        "pick_name": mp["pick_label"],
+                        "line": mp.get("line"),
+                        "odds": round(mp["odds"], 2),
+                        "n_bookmakers": mp["n_bm"],
+                        "start_timestamp": int(start_ts),
+                        "score": round(best_score, 4),
+                        "sofa_confirmed": False,
+                        "result": None,
+                    }
 
-                home = ev.get("home_team", "")
-                away = ev.get("away_team", "")
-                start_ts = ev.get("commence_time", 0)
+            if best_pick:
+                candidates.append(best_pick)
 
-                best_pick = None
-                best_score = 0
-                for mp in picks:
-                    sc = score_pick(mp["odds"], std=mp["std"], n_bm=mp["n_bm"])
-                    if sc <= 0:
-                        continue
-                    if sc > best_score:
-                        best_score = sc
-                        best_pick = {
-                                "event_id": event_id,
-                                "sport_key": sport_key,
-                                "sport": sport_label,
-                                "home": home,
-                                "away": away,
-                                "market": mp["market"],
-                                "outcome_key": mp["outcome_key"],
-                                "pick_name": mp["pick_label"],
-                                "line": mp.get("line"),
-                                "odds": round(mp["odds"], 2),
-                                "n_bookmakers": mp["n_bm"],
-                                "start_timestamp": int(start_ts),
-                                "score": round(final_score, 4),
-                                "sofa_confirmed": False,
-                                "result": None,
-                            }
-
-                if best_pick:
-                    sport_candidates.append(best_pick)
-
-        sport_candidates.sort(key=lambda x: x["score"], reverse=True)
-        candidates.extend(sport_candidates[:3])  # max 3 per sport
-        logger.info(f"Odds API [{sport_label}]: {len(sport_candidates)} jelölt → {min(len(sport_candidates),3)} felvéve")
-
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    logger.info(f"API-Football: {len(candidates)} jelölt tipp összesen")
     return candidates
 
 
@@ -835,13 +834,12 @@ def _sync_collect_picks():
                 if best_pick:
                     candidates.append(best_pick)
 
-    # ── Odds API: kosár, jégkorong, baseball ─────────────────────────────────
-    odds_api_picks = collect_odds_api_picks(sent_ids)
-    candidates.extend(odds_api_picks)
-    logger.info(f"Odds API összesen: {len(odds_api_picks)} jelölt tipp hozzáadva")
+    # ── API-Football: multi-bookmaker futball odds ────────────────────────────
+    afl_picks = collect_api_football_picks(sent_ids)
+    candidates.extend(afl_picks)
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
-    logger.info(f"{len(candidates)} jelölt tipp összesen (futball + egyéb)")
+    logger.info(f"{len(candidates)} jelölt tipp összesen (SofaScore + API-Football)")
     return candidates
 
 
