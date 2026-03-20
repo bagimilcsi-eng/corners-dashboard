@@ -53,7 +53,7 @@ SOFASCORE_HEADERS = {
     "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8",
 }
 
-MIN_PICK_ODDS = 1.28
+MIN_PICK_ODDS = 1.35
 MAX_PICK_ODDS = 1.85
 TARGET_COMBINED = 2.00
 MIN_COMBINED = 1.75
@@ -64,8 +64,6 @@ MIN_BOOKMAKERS = 1
 MAX_ODDS_STD = 0.12
 MAX_EVENTS_PER_SPORT = 30  # SofaScore rate limit protection
 MAX_TOTAL_EVENTS = 80
-MAX_COUPONS_PER_DAY = 2     # Napi max szelvényszám
-MIN_HOURS_BETWEEN = 3       # Minimum szünet (óra) két küldés között
 
 SOFA_SPORTS = [
     "football",
@@ -175,37 +173,6 @@ def update_pick_result(coupon_id, event_id, result):
                     p["result"] = result
             cur.execute("UPDATE coupons SET picks=%s WHERE id=%s", (json.dumps(picks), coupon_id))
             conn.commit()
-
-
-def get_todays_coupon_count() -> int:
-    """Visszaadja a mai nap (Budapest TZ) elküldött szelvények számát."""
-    try:
-        now_hu = datetime.now(HU_TZ)
-        day_start_hu = now_hu.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_start_utc = int(day_start_hu.timestamp())
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT COUNT(*) FROM coupons WHERE sent_at >= %s",
-                    (day_start_utc,)
-                )
-                return cur.fetchone()[0]
-    except Exception as e:
-        logger.error(f"get_todays_coupon_count error: {e}")
-        return 0
-
-
-def get_last_sent_timestamp() -> int | None:
-    """Visszaadja az utolsó szelvény küldési időpontját (UNIX timestamp), vagy None-t."""
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT MAX(sent_at) FROM coupons")
-                row = cur.fetchone()
-                return row[0] if row and row[0] else None
-    except Exception as e:
-        logger.error(f"get_last_sent_timestamp error: {e}")
-        return None
 
 
 def get_sent_event_ids():
@@ -1085,8 +1052,8 @@ def _sync_collect_picks():
                     # ── H2H szűrő (h2h piac) ─────────────────────────────────
                     if mp["market"] == "h2h" and mp["outcome_key"] in ("home", "away"):
                         sofa_ok = verify_with_sofascore(home, away, mp["outcome_key"])
-                        if sofa_ok is False:
-                            logger.info(f"H2H kizárt: {home} vs {away} [{mp['pick_label']}]")
+                        if sofa_ok is not True:
+                            logger.info(f"H2H kizárt (nincs megerősítés): {home} vs {away} [{mp['pick_label']}]")
                             continue
 
                     # ── Over/Under statisztikai szűrő (totals piac) ───────────
@@ -1253,22 +1220,6 @@ async def scan_and_send(context=None, force=False):
     if not COUPON_CHAT_ID:
         logger.warning("COUPON_CHAT_ID nincs beállítva! Küldj /start üzenetet a botnak.")
         return
-
-    if not force:
-        # ── Napi limit ellenőrzés ─────────────────────────────────────────
-        todays_count = get_todays_coupon_count()
-        if todays_count >= MAX_COUPONS_PER_DAY:
-            logger.info(f"Napi limit elérve ({todays_count}/{MAX_COUPONS_PER_DAY}), kihagyva")
-            return
-
-        # ── Cooldown ellenőrzés ───────────────────────────────────────────
-        last_ts = get_last_sent_timestamp()
-        if last_ts is not None:
-            hours_since = (datetime.utcnow().timestamp() - last_ts) / 3600
-            if hours_since < MIN_HOURS_BETWEEN:
-                remaining_min = int((MIN_HOURS_BETWEEN - hours_since) * 60)
-                logger.info(f"Cooldown aktív ({remaining_min} perc múlva lehet újra küldeni), kihagyva")
-                return
 
     candidates = await asyncio.to_thread(_sync_collect_picks)
     if not candidates:
