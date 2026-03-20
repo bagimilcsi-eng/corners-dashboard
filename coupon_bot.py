@@ -42,6 +42,9 @@ SOFASCORE_HEADERS = {
     "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8",
 }
 
+ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "")
+ODDS_API_BASE = "https://api.the-odds-api.com/v4"
+
 MIN_PICK_ODDS = 1.28
 MAX_PICK_ODDS = 1.85
 TARGET_COMBINED = 2.00
@@ -49,25 +52,48 @@ MIN_COMBINED = 1.75
 MAX_COMBINED = 2.60
 MIN_PICKS = 2
 MAX_PICKS = 3
-MIN_BOOKMAKERS = 4
+MIN_BOOKMAKERS = 1
 MAX_ODDS_STD = 0.12
 MAX_EVENTS_PER_SPORT = 30  # SofaScore rate limit protection
 MAX_TOTAL_EVENTS = 80
 
 SOFA_SPORTS = [
     "football",
-    "basketball",
-    "ice-hockey",
-    "american-football",
-    "tennis",
 ]
+
+# Odds API sport kulcsok a nem-futball sportokhoz
+# Ezekhez SofaScore nem ad vissza odds adatot
+ODDS_API_SPORTS = {
+    "basketball": [
+        "basketball_euroleague",
+        "basketball_nba",
+        "basketball_ncaab",
+    ],
+    "ice-hockey": [
+        "icehockey_nhl",
+        "icehockey_sweden_hockey_league",
+        "icehockey_finland_liiga",
+        "icehockey_czech_extraliga",
+    ],
+    "baseball": [
+        "baseball_mlb",
+    ],
+}
 
 SOFA_TO_EMOJI = {
     "football": "⚽",
     "basketball": "🏀",
     "ice-hockey": "🏒",
-    "american-football": "🏈",
+    "baseball": "⚾",
     "tennis": "🎾",
+}
+
+SPORT_UNIT = {
+    "football": "gól",
+    "basketball": "pont",
+    "ice-hockey": "gól",
+    "baseball": "fut",
+    "tennis": "játék",
 }
 
 SPORT_EMOJI = SOFA_TO_EMOJI  # backward compat for format_coupon
@@ -543,6 +569,165 @@ def verify_with_sofascore(home_team, away_team, pick_side):
     return None
 
 
+# ── The Odds API (nem-futball sportok) ───────────────────────────────────────
+
+def odds_api_get(sport_key: str) -> list:
+    """
+    Lekéri a következő 48 óra eseményeit The Odds API-ból.
+    Visszaad: nyers events lista [{ id, home_team, away_team, commence_time, bookmakers }]
+    """
+    if not ODDS_API_KEY:
+        return []
+    try:
+        now_ts = datetime.utcnow().timestamp()
+        params = {
+            "apiKey": ODDS_API_KEY,
+            "regions": "eu,uk",
+            "markets": "h2h,totals",
+            "oddsFormat": "decimal",
+            "dateFormat": "unix",
+        }
+        r = requests.get(f"{ODDS_API_BASE}/sports/{sport_key}/odds/",
+                         params=params, timeout=12)
+        if not r.ok:
+            logger.warning(f"Odds API {sport_key}: HTTP {r.status_code}")
+            return []
+        events = r.json()
+        # Csak a következő 2–48 órás meccsek
+        return [e for e in events
+                if now_ts + 7200 <= e.get("commence_time", 0) <= now_ts + 48 * 3600]
+    except Exception as ex:
+        logger.error(f"Odds API hiba ({sport_key}): {ex}")
+        return []
+
+
+def parse_odds_api_event(event: dict, sport_label: str) -> list:
+    """
+    Kinyeri a pick jelölteket egy Odds API eseményből.
+    Visszaad lista of {market, outcome_key, pick_label, odds, std, n_bm, line}.
+    Az összes bookmaker átlagát és szórását számítja.
+    """
+    home = event.get("home_team", "")
+    away = event.get("away_team", "")
+    unit = SPORT_UNIT.get(sport_label, "pont")
+
+    # Összegyűjtjük bookmaker-enként az odds-okat
+    h2h_home_odds, h2h_away_odds = [], []
+    totals_over: dict[float, list] = {}   # line → [odds, ...]
+    totals_under: dict[float, list] = {}
+
+    for bm in event.get("bookmakers", []):
+        for market in bm.get("markets", []):
+            key = market.get("key", "")
+            if key == "h2h":
+                for oc in market.get("outcomes", []):
+                    price = oc.get("price", 0)
+                    if oc.get("name") == home:
+                        h2h_home_odds.append(price)
+                    elif oc.get("name") == away:
+                        h2h_away_odds.append(price)
+            elif key == "totals":
+                for oc in market.get("outcomes", []):
+                    line = oc.get("point")
+                    price = oc.get("price", 0)
+                    if line is None:
+                        continue
+                    if oc.get("name", "").lower() == "over":
+                        totals_over.setdefault(line, []).append(price)
+                    elif oc.get("name", "").lower() == "under":
+                        totals_under.setdefault(line, []).append(price)
+
+    picks = []
+
+    def make_pick(outcome_key, label, odds_list, market, line=None):
+        if not odds_list:
+            return
+        avg_odds = sum(odds_list) / len(odds_list)
+        n = len(odds_list)
+        std = (sum((o - avg_odds) ** 2 for o in odds_list) / n) ** 0.5 if n > 1 else 0.0
+        avg_odds = round(avg_odds, 3)
+        if MIN_PICK_ODDS <= avg_odds <= MAX_PICK_ODDS:
+            picks.append({
+                "market": market,
+                "outcome_key": outcome_key,
+                "pick_label": label,
+                "odds": avg_odds,
+                "std": round(std, 4),
+                "n_bm": n,
+                "line": line,
+            })
+
+    make_pick("home", f"{home} győz", h2h_home_odds, "h2h")
+    make_pick("away", f"{away} győz", h2h_away_odds, "h2h")
+
+    for line, odds_list in totals_over.items():
+        make_pick(f"over_{line}", f"Több mint {line} {unit}", odds_list, "totals", line)
+    for line, odds_list in totals_under.items():
+        make_pick(f"under_{line}", f"Kevesebb mint {line} {unit}", odds_list, "totals", line)
+
+    return picks
+
+
+def collect_odds_api_picks(sent_ids: set) -> list:
+    """
+    Végigmegy az összes Odds API sporton, összegyűjti a jelölt tippeket.
+    """
+    candidates = []
+    now_ts = datetime.utcnow().timestamp()
+
+    for sport_label, sport_keys in ODDS_API_SPORTS.items():
+        sport_candidates = []
+        for sport_key in sport_keys:
+            events = odds_api_get(sport_key)
+            logger.info(f"Odds API [{sport_key}]: {len(events)} esemény")
+            for ev in events:
+                event_id = str(ev.get("id", ""))
+                if event_id in sent_ids:
+                    continue
+                picks = parse_odds_api_event(ev, sport_label)
+                if not picks:
+                    continue
+
+                home = ev.get("home_team", "")
+                away = ev.get("away_team", "")
+                start_ts = ev.get("commence_time", 0)
+
+                best_pick = None
+                best_score = 0
+                for mp in picks:
+                    sc = score_pick(mp["odds"], std=mp["std"], n_bm=mp["n_bm"])
+                    if sc <= 0:
+                        continue
+                    if sc > best_score:
+                        best_score = sc
+                        best_pick = {
+                                "event_id": event_id,
+                                "sport_key": sport_key,
+                                "sport": sport_label,
+                                "home": home,
+                                "away": away,
+                                "market": mp["market"],
+                                "outcome_key": mp["outcome_key"],
+                                "pick_name": mp["pick_label"],
+                                "line": mp.get("line"),
+                                "odds": round(mp["odds"], 2),
+                                "n_bookmakers": mp["n_bm"],
+                                "start_timestamp": int(start_ts),
+                                "score": round(final_score, 4),
+                                "sofa_confirmed": False,
+                                "result": None,
+                            }
+
+                if best_pick:
+                    sport_candidates.append(best_pick)
+
+        sport_candidates.sort(key=lambda x: x["score"], reverse=True)
+        candidates.extend(sport_candidates[:3])  # max 3 per sport
+        logger.info(f"Odds API [{sport_label}]: {len(sport_candidates)} jelölt → {min(len(sport_candidates),3)} felvéve")
+
+    return candidates
+
+
 # ── Pick scoring & coupon building ───────────────────────────────────────────
 
 def score_pick(odds, std, n_bm):
@@ -650,8 +835,13 @@ def _sync_collect_picks():
                 if best_pick:
                     candidates.append(best_pick)
 
+    # ── Odds API: kosár, jégkorong, baseball ─────────────────────────────────
+    odds_api_picks = collect_odds_api_picks(sent_ids)
+    candidates.extend(odds_api_picks)
+    logger.info(f"Odds API összesen: {len(odds_api_picks)} jelölt tipp hozzáadva")
+
     candidates.sort(key=lambda x: x["score"], reverse=True)
-    logger.info(f"{len(candidates)} jelölt tipp összesen")
+    logger.info(f"{len(candidates)} jelölt tipp összesen (futball + egyéb)")
     return candidates
 
 
