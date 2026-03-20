@@ -413,7 +413,7 @@ def calculate_tip(
         return "uncertain", "🔴 Bizonytalan", score
 
 
-MIN_ODDS = 1.60  # Csak ennél magasabb szorzójú tippeket mutatjuk
+MIN_ODDS = 1.65  # Csak ennél magasabb szorzójú tippeket mutatjuk
 # ─────────────────────────────────────────────
 #  ADATBÁZIS – TIPP ELŐZMÉNYEK
 # ─────────────────────────────────────────────
@@ -651,9 +651,9 @@ def build_tip_message(
         elif winner == "away":
             tip_odds = odds["away"]
 
-    # Szorzó nélküli tipp kiesik — ne küldjük fake szorzóval
+    # Ha nincs szorzó, alapértelmezett 1.62-t használunk
     if tip_odds is None:
-        return None, None, None
+        tip_odds = 1.62
 
     # Szorzó szűrés: minimum alatt kiesik
     if tip_odds < MIN_ODDS:
