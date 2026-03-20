@@ -1146,6 +1146,10 @@ def build_coupon(candidates):
             if not (MIN_COMBINED <= combined <= MAX_COMBINED):
                 continue
             diff = abs(combined - TARGET_COMBINED)
+            # Vegyes piac preferencia: h2h + totals kombó előnyt kap
+            markets = {p.get("market", "h2h") for p in combo}
+            if len(markets) > 1:
+                diff -= 0.08
             if diff < best_diff:
                 best_diff = diff
                 best = (list(combo), combined)
