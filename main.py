@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import asyncio
 import logging
 import requests
 import psycopg2
@@ -1278,14 +1279,11 @@ async def send_startup_tips(app):
 # ─────────────────────────────────────────────
 
 
-async def check_results_and_notify(context):
-    """10 percenként ellenőrzi a lezárt meccseket és Telegramra küldi az eredményt."""
-    if not TELEGRAM_CHAT_ID:
-        return
-
+def _collect_results_sync() -> list:
+    """Szinkron eredmény-lekérés thread-ben — nem blokkolja az event loop-ot."""
     tips = load_tips()
     now_ts = int(datetime.utcnow().timestamp())
-    changed = False
+    notifications = []
 
     for t in tips:
         if t.get("result") is not None:
@@ -1298,8 +1296,6 @@ async def check_results_and_notify(context):
             continue
 
         result = "win" if actual == t["predicted"] else "loss"
-        t["actual_winner"] = actual
-        t["result"] = result
         update_tip_result(t["event_id"], result, actual)
 
         won = result == "win"
@@ -1316,16 +1312,26 @@ async def check_results_and_notify(context):
             f"📊 Szorzó: {odds_text}\n"
             f"🏆 Tényleges győztes: {t['home'] if actual == 'home' else t['away']}"
         )
+        notifications.append((t["event_id"], result, msg))
 
+    return notifications
+
+
+async def check_results_and_notify(context):
+    """10 percenként ellenőrzi a lezárt meccseket és Telegramra küldi az eredményt."""
+    if not TELEGRAM_CHAT_ID:
+        return
+
+    notifications = await asyncio.to_thread(_collect_results_sync)
+
+    for event_id, result, msg in notifications:
         try:
             await context.bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
                 text=msg,
                 parse_mode=ParseMode.MARKDOWN,
             )
-            logger.info(
-                f"Eredmény értesítő elküldve: event_id={t['event_id']}, result={result}"
-            )
+            logger.info(f"Eredmény értesítő elküldve: event_id={event_id}, result={result}")
         except Exception as e:
             logger.error(f"Eredmény értesítő hiba: {e}")
 
@@ -1337,34 +1343,29 @@ async def check_results_and_notify(context):
 SCAN_INTERVAL_SEC = 900  # 15 perc
 
 
-async def scan_and_send_tips(context):
-    """15 percenként fut: ha új erős tipp van, azonnal küldi Telegramra."""
-    if not TELEGRAM_CHAT_ID:
-        return
-
+def _collect_new_tips_sync() -> list:
+    """Szinkron HTTP adatgyűjtés — thread-ben fut, nem blokkolja az event loop-ot."""
     now_ts = int(datetime.utcnow().timestamp())
-    horizon_ts = now_ts + 12 * 3600  # következő 12 óra
+    horizon_ts = now_ts + 12 * 3600
 
     today = date.today().isoformat()
     events = sofascore_fetch_events(today)
-
     tomorrow = (date.today() + timedelta(days=1)).isoformat()
     events += sofascore_fetch_events(tomorrow)
 
     upcoming = [
-        e
-        for e in events
+        e for e in events
         if is_allowed(e)
         and e.get("status", {}).get("type", "").lower() == "notstarted"
         and now_ts <= e.get("startTimestamp", 0) <= horizon_ts
     ]
 
     if not upcoming:
-        return
+        return []
 
     already_sent_ids = {t["event_id"] for t in load_tips()}
+    results = []
 
-    new_tips_sent = 0
     for event in upcoming:
         event_id = event.get("id")
         if event_id and event_id in already_sent_ids:
@@ -1373,6 +1374,24 @@ async def scan_and_send_tips(context):
             msg, tip_odds, tip_meta = build_tip_message(event, events)
             if msg is None:
                 continue
+            results.append((msg, tip_meta))
+            if tip_meta and event_id:
+                already_sent_ids.add(event_id)
+        except Exception as e:
+            logger.error(f"Tipp építés hiba: {e}")
+
+    return results
+
+
+async def scan_and_send_tips(context):
+    """15 percenként fut: ha új erős tipp van, azonnal küldi Telegramra."""
+    if not TELEGRAM_CHAT_ID:
+        return
+
+    tips_to_send = await asyncio.to_thread(_collect_new_tips_sync)
+
+    for msg, tip_meta in tips_to_send:
+        try:
             await context.bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
                 text=msg,
@@ -1380,14 +1399,12 @@ async def scan_and_send_tips(context):
             )
             if tip_meta:
                 save_tip_record(tip_meta)
-                already_sent_ids.add(event_id)
-            new_tips_sent += 1
-            logger.info(f"Automatikus tipp elküldve: event_id={event_id}")
+            logger.info(f"Automatikus tipp elküldve: event_id={tip_meta.get('event_id') if tip_meta else '?'}")
         except Exception as e:
             logger.error(f"Automatikus tipp hiba: {e}")
 
-    if new_tips_sent > 0:
-        logger.info(f"Scan kész: {new_tips_sent} új tipp elküldve.")
+    if tips_to_send:
+        logger.info(f"Scan kész: {len(tips_to_send)} új tipp elküldve.")
     else:
         logger.debug("Scan kész: nincs új tipp.")
 
