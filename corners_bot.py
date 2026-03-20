@@ -52,22 +52,25 @@ SOFASCORE_HEADERS = {
 }
 
 CORNER_LINE = 9.5
-OVER_THRESHOLD = 12.0
-UNDER_THRESHOLD = 7.0
+OVER_THRESHOLD = 10.5   # volt 12.0 — az új formula pontosabb, alacsonyabb küszöb elég
+UNDER_THRESHOLD = 8.5   # volt 7.0
 RESULT_DELAY_MIN = 110
 MAX_FIXTURES_PER_SCAN = 30
 MIN_RECENT_MATCHES = 3
-API_DELAY_SEC = 0.5
+API_DELAY_SEC = 0.4
 MIN_CORNER_ODDS = 1.60
+MIN_WING_CORNERS = 4.5  # min CF hogy "wing-play" legyen
+OVER_85_MIN_RATE = 0.60 # min hit rate az over 8.5-re
+MIN_CONFIDENCE = 35     # legalább ennyi pont kell hogy kimenjen a tipp
 
 _corner_cache: dict = {}
+_event_corner_cache: dict = {}  # event_id -> (h, a) — megakadályozza a dupla API hívást
 
 
-def get_strength(expected: float) -> tuple[str, str]:
-    margin = abs(expected - CORNER_LINE)
-    if margin >= 2.5:
+def get_confidence_label(score: int) -> tuple[str, str]:
+    if score >= 75:
         return "⚡⚡⚡", "Nagyon erős"
-    elif margin >= 1.5:
+    elif score >= 50:
         return "⚡⚡", "Erős"
     else:
         return "⚡", "Mérsékelt"
@@ -101,6 +104,11 @@ def init_db():
         actual_corners   INTEGER DEFAULT NULL
     );
     ALTER TABLE corner_tips ADD COLUMN IF NOT EXISTS odds REAL DEFAULT NULL;
+    ALTER TABLE corner_tips ADD COLUMN IF NOT EXISTS confidence_score INTEGER DEFAULT NULL;
+    ALTER TABLE corner_tips ADD COLUMN IF NOT EXISTS home_ca REAL DEFAULT NULL;
+    ALTER TABLE corner_tips ADD COLUMN IF NOT EXISTS away_ca REAL DEFAULT NULL;
+    ALTER TABLE corner_tips ADD COLUMN IF NOT EXISTS home_over_rate REAL DEFAULT NULL;
+    ALTER TABLE corner_tips ADD COLUMN IF NOT EXISTS away_over_rate REAL DEFAULT NULL;
     """
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -124,10 +132,13 @@ def save_corner_tip(tip: dict):
     sql = """
     INSERT INTO corner_tips
         (event_id, home, away, league, league_id, start_timestamp, tip, line,
-         expected_corners, home_avg, away_avg, odds, sent_at)
+         expected_corners, home_avg, away_avg, home_ca, away_ca,
+         home_over_rate, away_over_rate, confidence_score, odds, sent_at)
     VALUES (%(event_id)s, %(home)s, %(away)s, %(league)s, %(league_id)s,
             %(start_timestamp)s, %(tip)s, %(line)s, %(expected_corners)s,
-            %(home_avg)s, %(away_avg)s, %(odds)s, %(sent_at)s)
+            %(home_avg)s, %(away_avg)s, %(home_ca)s, %(away_ca)s,
+            %(home_over_rate)s, %(away_over_rate)s, %(confidence_score)s,
+            %(odds)s, %(sent_at)s)
     ON CONFLICT (event_id) DO NOTHING;
     """
     try:
@@ -205,49 +216,87 @@ def fetch_event_corners(event_id: int) -> tuple[int | None, int | None]:
     return None, None
 
 
-def get_team_corner_avg(team_id: int, is_home: bool) -> float | None:
+def fetch_event_corners_cached(event_id: int) -> tuple[int | None, int | None]:
+    if event_id in _event_corner_cache:
+        return _event_corner_cache[event_id]
+    result = fetch_event_corners(event_id)
+    _event_corner_cache[event_id] = result
+    return result
+
+
+def get_team_corner_stats(team_id: int, is_home: bool) -> dict | None:
+    """
+    Visszaad egy statisztikai dict-et:
+      cf        - Corners For (saját szögletek) átlaga H/A kontextusban
+      ca        - Corners Against (kapott szögletek) átlaga H/A kontextusban
+      season_total - összes szöglet/meccs átlaga (cf+ca)
+      l5_total  - utolsó 5 meccs átlaga (trend)
+      over_85_rate - over 8.5 szöglet találati arány
+      n         - felhasznált meccsek száma
+    """
     today_str = date.today().isoformat()
-    cache_key = f"{team_id}_{'home' if is_home else 'away'}"
+    cache_key = f"{team_id}_{'H' if is_home else 'A'}_v2"
 
     if cache_key in _corner_cache and _corner_cache[cache_key].get("date") == today_str:
-        return _corner_cache[cache_key]["avg"]
+        return _corner_cache[cache_key]["stats"]
 
     recent = fetch_team_recent_matches(team_id)
     if not recent:
         return None
 
+    # H/A szplit
     if is_home:
-        relevant = [e for e in recent if e.get("homeTeam", {}).get("id") == team_id]
+        ha_matches = [e for e in recent if e.get("homeTeam", {}).get("id") == team_id]
     else:
-        relevant = [e for e in recent if e.get("awayTeam", {}).get("id") == team_id]
+        ha_matches = [e for e in recent if e.get("awayTeam", {}).get("id") == team_id]
 
-    if len(relevant) < MIN_RECENT_MATCHES:
-        relevant = recent
+    # Ha nincs elég H/A meccs, használjuk az összeset
+    if len(ha_matches) < MIN_RECENT_MATCHES:
+        ha_matches = recent
 
-    if len(relevant) < MIN_RECENT_MATCHES:
+    if len(ha_matches) < MIN_RECENT_MATCHES:
         return None
 
-    corners_list = []
-    for event in relevant[:7]:
-        eid = event.get("id")
+    data_points = []  # (cf, ca, total)
+    for ev in ha_matches[:8]:
+        eid = ev.get("id")
         if not eid:
             continue
-        h_corners, a_corners = fetch_event_corners(eid)
-        if h_corners is None:
+        h, a = fetch_event_corners_cached(eid)
+        if h is None:
             continue
-        if is_home and event.get("homeTeam", {}).get("id") == team_id:
-            corners_list.append(h_corners)
-        elif not is_home and event.get("awayTeam", {}).get("id") == team_id:
-            corners_list.append(a_corners)
+        home_team_id = ev.get("homeTeam", {}).get("id")
+        if home_team_id == team_id:
+            data_points.append((h, a, h + a))
         else:
-            corners_list.append(h_corners if is_home else a_corners)
+            data_points.append((a, h, h + a))
 
-    if len(corners_list) < MIN_RECENT_MATCHES:
+    if len(data_points) < MIN_RECENT_MATCHES:
         return None
 
-    avg = sum(corners_list) / len(corners_list)
-    _corner_cache[cache_key] = {"avg": round(avg, 2), "date": today_str}
-    return avg
+    cf_vals = [d[0] for d in data_points]
+    ca_vals = [d[1] for d in data_points]
+    total_vals = [d[2] for d in data_points]
+
+    season_cf = sum(cf_vals) / len(cf_vals)
+    season_ca = sum(ca_vals) / len(ca_vals)
+    season_total = sum(total_vals) / len(total_vals)
+
+    l5 = total_vals[:5]
+    l5_total = sum(l5) / len(l5) if l5 else season_total
+
+    over_85_rate = sum(1 for t in total_vals if t > 8.5) / len(total_vals)
+
+    stats = {
+        "cf": round(season_cf, 2),
+        "ca": round(season_ca, 2),
+        "season_total": round(season_total, 2),
+        "l5_total": round(l5_total, 2),
+        "over_85_rate": round(over_85_rate, 2),
+        "n": len(data_points),
+    }
+    _corner_cache[cache_key] = {"stats": stats, "date": today_str}
+    return stats
 
 
 def fetch_corner_odds(event_id: int, tip: str) -> float | None:
@@ -304,26 +353,69 @@ def analyze_fixture(event: dict) -> dict | None:
 
     logger.info(f"Szöglet elemzés: {home_name} vs {away_name} ({league_name})")
 
-    home_avg = get_team_corner_avg(home_id, is_home=True)
-    away_avg = get_team_corner_avg(away_id, is_home=False)
+    home_stats = get_team_corner_stats(home_id, is_home=True)
+    away_stats = get_team_corner_stats(away_id, is_home=False)
 
-    if home_avg is None or away_avg is None:
+    if home_stats is None or away_stats is None:
         logger.info(f"Nincs elég adat: {home_name} vs {away_name}")
         return None
 
-    expected = round(home_avg + away_avg, 1)
+    # ── 1. BASE (40%): H/A szplit ──────────────────────────────────────────
+    # Home team corners at home + Away team corners against at away
+    # Away team corners at away + Home team corners against at home
+    base = (home_stats["cf"] + away_stats["ca"] +
+            away_stats["cf"] + home_stats["ca"]) / 2
+
+    # ── 2. TREND BOOST (30%): L5 vs szezon átlag ──────────────────────────
+    avg_l5 = (home_stats["l5_total"] + away_stats["l5_total"]) / 2
+    avg_season = (home_stats["season_total"] + away_stats["season_total"]) / 2
+    trend_boost = avg_l5 > avg_season
+    if trend_boost:
+        base *= 1.10
+
+    expected = round(base, 1)
+
+    # ── 3. CONFIDENCE SCORE ────────────────────────────────────────────────
+    confidence = 0
+
+    # Wing-play: mindkét csapat CF >= 4.5
+    wing_play = home_stats["cf"] >= MIN_WING_CORNERS and away_stats["cf"] >= MIN_WING_CORNERS
+    if wing_play:
+        confidence += 35
+
+    # Over 8.5 hit rate mindkét csapatnál >= küszöb
+    over_rate_ok = (home_stats["over_85_rate"] >= OVER_85_MIN_RATE and
+                    away_stats["over_85_rate"] >= OVER_85_MIN_RATE)
+    if over_rate_ok:
+        confidence += 35
+
+    # Trend boost aktív
+    if trend_boost:
+        confidence += 15
+
+    # Várható érték távolsága a vonaltól
+    margin = abs(expected - CORNER_LINE)
+    if margin >= 2.0:
+        confidence += 15
+    elif margin >= 1.0:
+        confidence += 8
+
+    if confidence < MIN_CONFIDENCE:
+        logger.info(f"Alacsony konfidencia ({confidence}%): {home_name} vs {away_name} — kihagyva")
+        return None
 
     if expected >= OVER_THRESHOLD:
         tip = "over"
     elif expected <= UNDER_THRESHOLD:
         tip = "under"
     else:
-        logger.info(f"Nem elég erős jel ({expected}): {home_name} vs {away_name}")
+        logger.info(f"Várható szögletek ({expected}) a semleges zónában: {home_name} vs {away_name}")
         return None
 
+    # ── 4. ODDS ────────────────────────────────────────────────────────────
     odds = fetch_corner_odds(event_id, tip)
     if odds is None:
-        logger.info(f"Nincs szöglet odds: {home_name} vs {away_name} — alapértelmezett 1.62 használva")
+        logger.info(f"Nincs szöglet odds: {home_name} vs {away_name} — alapértelmezett 1.62")
         odds = 1.62
     elif odds < MIN_CORNER_ODDS:
         logger.info(f"Szorzó túl alacsony ({odds}): {home_name} vs {away_name}")
@@ -341,8 +433,13 @@ def analyze_fixture(event: dict) -> dict | None:
         "tip": tip,
         "line": CORNER_LINE,
         "expected_corners": expected,
-        "home_avg": round(home_avg, 1),
-        "away_avg": round(away_avg, 1),
+        "home_avg": round(home_stats["cf"], 1),
+        "away_avg": round(away_stats["cf"], 1),
+        "home_ca": round(home_stats["ca"], 1),
+        "away_ca": round(away_stats["ca"], 1),
+        "home_over_rate": home_stats["over_85_rate"],
+        "away_over_rate": away_stats["over_85_rate"],
+        "confidence_score": confidence,
         "odds": odds,
         "sent_at": int(datetime.utcnow().timestamp()),
         "result": None,
@@ -359,18 +456,41 @@ def format_tip_msg(tip: dict) -> str:
     time_str = start_dt.strftime("%H:%M")
     tip_icon = "⬆️" if tip["tip"] == "over" else "⬇️"
     tip_label = "OVER" if tip["tip"] == "over" else "UNDER"
-    strength_icon, strength_label = get_strength(tip["expected_corners"])
+    conf = tip.get("confidence_score") or 0
+    conf_icon, conf_label = get_confidence_label(conf)
     odds = tip.get("odds")
     odds_str = f"\n💰 Szorzó: *{odds}*" if odds else ""
+
+    home_cf = tip.get("home_avg", "?")
+    away_cf = tip.get("away_avg", "?")
+    home_ca = tip.get("home_ca")
+    away_ca = tip.get("away_ca")
+    home_rate = tip.get("home_over_rate")
+    away_rate = tip.get("away_over_rate")
+
+    cf_ca_str = ""
+    if home_ca is not None and away_ca is not None:
+        cf_ca_str = (
+            f"   ┣ Hazai CF: {home_cf} | CA: {home_ca}\n"
+            f"   ┗ Vendég CF: {away_cf} | CA: {away_ca}\n"
+        )
+    else:
+        cf_ca_str = f"   ┣ Hazai: {home_cf} | Vendég: {away_cf}\n"
+
+    rate_str = ""
+    if home_rate is not None and away_rate is not None:
+        rate_str = f"📈 Over 8.5 ráta: {int(home_rate*100)}% | {int(away_rate*100)}%\n"
+
     return (
         f"⚽ *Szöglet Tipp*\n\n"
         f"🏆 {tip['league']}\n"
         f"🕐 {date_str} {time_str}\n"
         f"🆚 *{tip['home']}* vs *{tip['away']}*\n"
         f"📊 Várható szögletek: *{tip['expected_corners']}*\n"
-        f"   ┣ Hazai: {tip['home_avg']} | Vendég: {tip['away_avg']}\n"
+        f"{cf_ca_str}"
+        f"{rate_str}"
         f"{tip_icon} Tipp: *{tip_label} {tip['line']} szöglet*\n"
-        f"{strength_icon} Erősség: *{strength_label}*"
+        f"{conf_icon} Konfidencia: *{conf_label}* ({conf}%)"
         f"{odds_str}"
     )
 
