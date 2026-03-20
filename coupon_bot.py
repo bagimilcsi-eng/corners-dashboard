@@ -34,6 +34,17 @@ COUPON_CHAT_ID = os.environ.get("COUPON_CHAT_ID", "")
 SUPABASE_DB_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
 SOFASCORE_BASE = "https://api.sofascore.com/api/v1"
+ODDS_API_KEY  = os.environ.get("ODDS_API_KEY", "")
+ODDS_API_BASE = "https://api.the-odds-api.com/v4"
+ODDS_API_SPORTS = [
+    "soccer_epl",
+    "soccer_germany_bundesliga",
+    "soccer_spain_la_liga",
+    "soccer_italy_serie_a",
+    "soccer_france_ligue_one",
+]
+ODDS_QUOTA_FILE = "odds_quota_state.json"
+ODDS_CACHE_FILE  = "odds_api_daily_cache.json"
 
 SOFASCORE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -547,6 +558,253 @@ def verify_with_sofascore(home_team, away_team, pick_side):
     return None
 
 
+# ── Odds API – kvóta kezelés + napi cache ────────────────────────────────────
+
+def _load_quota_state() -> dict:
+    try:
+        with open(ODDS_QUOTA_FILE, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {"exhausted": False, "remaining": 500, "exhausted_month": None}
+
+
+def _save_quota_state(state: dict):
+    try:
+        with open(ODDS_QUOTA_FILE, "w") as f:
+            json.dump(state, f)
+    except Exception as e:
+        logger.warning(f"Kvóta állapot mentés hiba: {e}")
+
+
+def _is_odds_api_available() -> bool:
+    """True ha az Odds API kulcs megvan és a kvóta nem merült ki."""
+    if not ODDS_API_KEY:
+        return False
+    state = _load_quota_state()
+    now = datetime.utcnow()
+    # Hónap 2-án (vagy később) automatikus újraengedélyezés
+    if state.get("exhausted") and now.day >= 2:
+        if state.get("exhausted_month") != now.month:
+            logger.info("Odds API kvóta: havi reset – újra engedélyezve")
+            state["exhausted"] = False
+            state["remaining"] = 500
+            state["exhausted_month"] = None
+            _save_quota_state(state)
+    return not state.get("exhausted", False)
+
+
+def _update_quota(headers: dict):
+    """Frissíti a kvóta állapotát a válasz fejlécek alapján."""
+    remaining_str = headers.get("x-requests-remaining", "")
+    if not remaining_str:
+        return
+    try:
+        remaining = int(remaining_str)
+    except ValueError:
+        return
+    state = _load_quota_state()
+    state["remaining"] = remaining
+    if remaining <= 0:
+        state["exhausted"] = True
+        state["exhausted_month"] = datetime.utcnow().month
+        logger.warning("Odds API kvóta elfogyott – visszaállás SofaScore-ra")
+    else:
+        logger.info(f"Odds API kvóta: {remaining} lekérés maradt")
+    _save_quota_state(state)
+
+
+def _load_odds_cache() -> list | None:
+    """Visszaadja a mai napi cache-t, ha létezik."""
+    try:
+        with open(ODDS_CACHE_FILE, "r") as f:
+            data = json.load(f)
+        if data.get("date") == datetime.utcnow().strftime("%Y-%m-%d"):
+            return data.get("picks", [])
+    except Exception:
+        pass
+    return None
+
+
+def _save_odds_cache(picks: list):
+    try:
+        with open(ODDS_CACHE_FILE, "w") as f:
+            json.dump({"date": datetime.utcnow().strftime("%Y-%m-%d"), "picks": picks}, f)
+    except Exception as e:
+        logger.warning(f"Odds cache mentés hiba: {e}")
+
+
+def _fetch_odds_api_sport(sport_key: str) -> list:
+    """Egy sport odds-ait kéri le az Odds API-tól. Visszaad nyers event listát."""
+    try:
+        r = requests.get(
+            f"{ODDS_API_BASE}/sports/{sport_key}/odds/",
+            params={
+                "apiKey": ODDS_API_KEY,
+                "regions": "eu,uk",
+                "markets": "h2h,totals",
+                "oddsFormat": "decimal",
+            },
+            timeout=15,
+        )
+        _update_quota(r.headers)
+        if r.status_code == 401:
+            logger.warning("Odds API: érvénytelen kulcs (401)")
+            return []
+        if r.status_code in (402, 429):
+            state = _load_quota_state()
+            state["exhausted"] = True
+            state["exhausted_month"] = datetime.utcnow().month
+            _save_quota_state(state)
+            logger.warning(f"Odds API kvóta limit ({r.status_code}) – visszaállás SofaScore-ra")
+            return []
+        if not r.ok:
+            logger.warning(f"Odds API [{sport_key}]: HTTP {r.status_code}")
+            return []
+        return r.json()
+    except Exception as ex:
+        logger.error(f"Odds API hiba [{sport_key}]: {ex}")
+        return []
+
+
+def _parse_odds_api_event(ev: dict) -> list:
+    """Kinyeri a pick jelölteket egy Odds API event objektumból."""
+    home = ev.get("home_team", "")
+    away = ev.get("away_team", "")
+    sport_key = ev.get("sport_key", "soccer")
+    start_ts = 0
+    try:
+        from datetime import datetime as _dt
+        start_ts = int(_dt.fromisoformat(ev["commence_time"].replace("Z", "+00:00")).timestamp())
+    except Exception:
+        pass
+
+    h2h_home, h2h_away, h2h_draw = [], [], []
+    totals_over: dict[float, list] = {}
+    totals_under: dict[float, list] = {}
+
+    for bm in ev.get("bookmakers", []):
+        for market in bm.get("markets", []):
+            mkey = market.get("key", "")
+            if mkey == "h2h":
+                for outcome in market.get("outcomes", []):
+                    try:
+                        price = float(outcome["price"])
+                    except (KeyError, ValueError, TypeError):
+                        continue
+                    name = outcome.get("name", "")
+                    if name == home:
+                        h2h_home.append(price)
+                    elif name == away:
+                        h2h_away.append(price)
+                    elif name.lower() in ("draw", "döntetlen"):
+                        h2h_draw.append(price)
+            elif mkey == "totals":
+                for outcome in market.get("outcomes", []):
+                    try:
+                        price = float(outcome["price"])
+                        line  = float(outcome["point"])
+                    except (KeyError, ValueError, TypeError):
+                        continue
+                    direction = outcome.get("name", "").lower()
+                    if direction == "over":
+                        totals_over.setdefault(line, []).append(price)
+                    elif direction == "under":
+                        totals_under.setdefault(line, []).append(price)
+
+    picks = []
+
+    def _make(outcome_key, label, odds_list, market, line=None):
+        if not odds_list:
+            return
+        avg = round(sum(odds_list) / len(odds_list), 3)
+        n   = len(odds_list)
+        std = round((sum((o - avg) ** 2 for o in odds_list) / n) ** 0.5 if n > 1 else 0.0, 4)
+        if MIN_PICK_ODDS <= avg <= MAX_PICK_ODDS:
+            picks.append({
+                "event_id":    f"odds_{ev.get('id', '')}",
+                "sport_key":   sport_key,
+                "sport":       "football",
+                "home":        home,
+                "away":        away,
+                "market":      market,
+                "outcome_key": outcome_key,
+                "pick_name":   label,
+                "line":        line,
+                "odds":        avg,
+                "std":         std,
+                "n_bm":        n,
+                "n_bookmakers": n,
+                "start_timestamp": start_ts,
+                "sofa_confirmed": False,
+                "result":      None,
+            })
+
+    _make("home", f"{home} győz", h2h_home, "h2h")
+    _make("away", f"{away} győz", h2h_away, "h2h")
+    _make("draw", "Döntetlen",    h2h_draw,  "h2h")
+    for line, ol in totals_over.items():
+        _make(f"over_{line}",  f"Több mint {line} gól",    ol, "totals", line)
+    for line, ol in totals_under.items():
+        _make(f"under_{line}", f"Kevesebb mint {line} gól", ol, "totals", line)
+
+    return picks
+
+
+def collect_odds_api_picks(sent_ids: set) -> list:
+    """
+    Odds API pick-gyűjtő napi cache-sel.
+    - Ha van mai cache → abból dolgozik (0 API hívás)
+    - Ha nincs → lekéri az összes sportot (N API hívás), elmenti cache-be
+    - Ha kvóta elfogyott → üres lista (SofaScore veszi át)
+    """
+    now_ts = datetime.utcnow().timestamp()
+
+    # Napi cache próba
+    cached = _load_odds_cache()
+    if cached is not None:
+        logger.info(f"Odds API: napi cache-ből dolgozik ({len(cached)} pick)")
+        source = cached
+    elif not _is_odds_api_available():
+        logger.info("Odds API: kvóta elfogyott – SofaScore fallback aktív")
+        return []
+    else:
+        # Friss lekérés
+        all_events = []
+        for sport_key in ODDS_API_SPORTS:
+            if not _is_odds_api_available():
+                logger.info("Odds API kvóta közben merült ki – abbahagyja a lekérést")
+                break
+            events = _fetch_odds_api_sport(sport_key)
+            logger.info(f"Odds API [{sport_key}]: {len(events)} mérkőzés")
+            all_events.extend(events)
+
+        # Minden event-ből parse-olunk pick-et, cache-eljük
+        source = []
+        for ev in all_events:
+            picks = _parse_odds_api_event(ev)
+            source.extend(picks)
+        _save_odds_cache(source)
+        logger.info(f"Odds API: {len(source)} pick, cache elmentve")
+
+    # Szűrés + pontozás
+    candidates = []
+    for p in source:
+        if p["event_id"] in sent_ids:
+            continue
+        ts = p.get("start_timestamp", 0)
+        if not (now_ts + 7200 <= ts <= now_ts + 48 * 3600):
+            continue
+        sc = score_pick(p["odds"], std=p.get("std", 0.0), n_bm=p.get("n_bm", 1))
+        if sc <= 0:
+            continue
+        p["score"] = round(sc, 4)
+        candidates.append(p)
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    logger.info(f"Odds API: {len(candidates)} jelölt tipp (szűrés után)")
+    return candidates
+
+
 # ── API-Football odds (multi-bookmaker futball) ──────────────────────────────
 
 FOOTBALL_API_BASE = "https://api-football-v1.p.rapidapi.com/v3"
@@ -834,12 +1092,20 @@ def _sync_collect_picks():
                 if best_pick:
                     candidates.append(best_pick)
 
-    # ── API-Football: multi-bookmaker futball odds ────────────────────────────
-    afl_picks = collect_api_football_picks(sent_ids)
-    candidates.extend(afl_picks)
+    # ── Odds API: multi-bookmaker futball odds (napi cache + auto-fallback) ──
+    odds_picks = collect_odds_api_picks(sent_ids)
+    candidates.extend(odds_picks)
+
+    # ── API-Football: fallback ha Odds API nem elérhető ───────────────────
+    if not odds_picks:
+        afl_picks = collect_api_football_picks(sent_ids)
+        candidates.extend(afl_picks)
+        src_label = "SofaScore + API-Football"
+    else:
+        src_label = "SofaScore + Odds API"
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
-    logger.info(f"{len(candidates)} jelölt tipp összesen (SofaScore + API-Football)")
+    logger.info(f"{len(candidates)} jelölt tipp összesen ({src_label})")
     return candidates
 
 
