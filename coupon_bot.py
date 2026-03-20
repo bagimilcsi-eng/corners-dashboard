@@ -199,8 +199,10 @@ def frac_to_dec(frac: str) -> float | None:
         return None
 
 
+FRIENDLY_KEYWORDS = {"friendly", "friendlies", "exhibition", "test match", "preparation"}
+
 def fetch_sofa_events(sport: str, date_str: str) -> list:
-    """Return notstarted events 2–48 h from now for a sport/date."""
+    """Return notstarted events 2–48 h from now for a sport/date. Barátságos meccsek kizárva."""
     now_ts = datetime.utcnow().timestamp()
     data = sofa_get(f"{SOFASCORE_BASE}/sport/{sport}/scheduled-events/{date_str}")
     if not data:
@@ -210,9 +212,14 @@ def fetch_sofa_events(sport: str, date_str: str) -> list:
         if ev.get("status", {}).get("type") != "notstarted":
             continue
         ts = ev.get("startTimestamp", 0)
-        if now_ts + 7200 <= ts <= now_ts + 48 * 3600:
-            ev["_sofa_sport"] = sport
-            out.append(ev)
+        if not (now_ts + 7200 <= ts <= now_ts + 48 * 3600):
+            continue
+        # ── Barátságos meccsek kizárása ──────────────────────────────────────
+        t_name = ev.get("tournament", {}).get("name", "").lower()
+        if any(kw in t_name for kw in FRIENDLY_KEYWORDS):
+            continue
+        ev["_sofa_sport"] = sport
+        out.append(ev)
     return out
 
 
@@ -404,19 +411,17 @@ def get_sofa_result(home_team, away_team, start_ts, sport_key="soccer"):
 
 def get_h2h_win_rate(event_id, pick_side):
     """
-    Returns the H2H win rate of the picked team.
+    Returns H2H win rate of picked side (min 5 H2H meccs szükséges).
     pick_side: 'home' or 'away'
-    Returns float 0-1 or None if not enough data.
     """
     data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}/h2h")
     if not data:
         return None
 
     all_events = data.get("events", [])
-    if len(all_events) < 3:
+    if len(all_events) < 5:
         return None
 
-    # Count how many times the home/away team of the current match won
     wins = 0
     total = 0
     for e in all_events[:10]:
@@ -430,7 +435,7 @@ def get_h2h_win_rate(event_id, pick_side):
         elif pick_side == "away" and a_score > h_score:
             wins += 1
 
-    if total < 3:
+    if total < 5:
         return None
     return wins / total
 
@@ -458,12 +463,57 @@ def get_recent_form(team_id):
     return wins / len(events)
 
 
+def get_team_over_rate(team_id: int, line: float, last_n: int = 7) -> float | None:
+    """
+    Visszaadja a csapat utolsó N meccsének over-arányát a megadott vonalra.
+    Pl. line=2.5 → hány meccsben volt 3+ gól összesen.
+    """
+    data = sofa_get(f"{SOFASCORE_BASE}/team/{team_id}/events/last/0")
+    if not data:
+        return None
+    events = [e for e in data.get("events", [])
+              if e.get("status", {}).get("type") == "finished"][:last_n]
+    if len(events) < 4:
+        return None
+    over_count = 0
+    for e in events:
+        h = e.get("homeScore", {}).get("current") or 0
+        a = e.get("awayScore", {}).get("current") or 0
+        if (h + a) > line:
+            over_count += 1
+    return over_count / len(events)
+
+
+def verify_totals_pick(home_id: int, away_id: int, line: float, direction: str) -> bool | None:
+    """
+    Over/Under statisztikai szűrő:
+    - Over: mindkét csapat utolsó 7 meccsének >= 70%-a over volt a vonalra
+    - Under: mindkét csapat utolsó 7 meccsének <= 35%-a over volt (azaz 65%+ under)
+    Returns True (megerősített) / False (ellentmond) / None (nincs adat)
+    """
+    home_rate = get_team_over_rate(home_id, line)
+    away_rate = get_team_over_rate(away_id, line)
+
+    if home_rate is None or away_rate is None:
+        return None
+
+    if direction == "over":
+        if home_rate >= 0.70 and away_rate >= 0.70:
+            return True
+        elif home_rate < 0.50 or away_rate < 0.50:
+            return False
+    elif direction == "under":
+        if home_rate <= 0.35 and away_rate <= 0.35:
+            return True
+        elif home_rate > 0.55 or away_rate > 0.55:
+            return False
+    return None
+
+
 def verify_with_sofascore(home_team, away_team, pick_side):
     """
-    Returns:
-      True  - SofaScore confirms the pick
-      False - SofaScore contradicts the pick → skip
-      None  - no SofaScore data, neutral
+    H2H + forma szűrő (emelt küszöb: 60% szükséges a megerősítéshez).
+    Returns True / False / None.
     """
     sofa = search_sofa_event(home_team, away_team)
     if not sofa:
@@ -486,9 +536,9 @@ def verify_with_sofascore(home_team, away_team, pick_side):
 
     avg = sum(signals) / len(signals)
 
-    if avg >= 0.50:
+    if avg >= 0.60:      # emelt küszöb: 60%+ → megerősítve
         return True
-    elif avg < 0.35:
+    elif avg < 0.40:     # 40% alatt → ellentmond
         return False
     return None
 
@@ -533,6 +583,8 @@ def _sync_collect_picks():
 
                 home = event.get("homeTeam", {}).get("name", "")
                 away = event.get("awayTeam", {}).get("name", "")
+                home_id = event.get("homeTeam", {}).get("id")
+                away_id = event.get("awayTeam", {}).get("id")
                 start_ts = event.get("startTimestamp", 0)
 
                 sport_checked += 1
@@ -549,19 +601,30 @@ def _sync_collect_picks():
                 best_pick = None
                 best_score = 0
                 for mp in market_picks:
-                    # Treat SofaScore as 4-bookmaker equivalent for scoring
                     sc = score_pick(mp["odds"], std=0.0, n_bm=4)
                     if sc <= 0:
                         continue
 
                     sofa_ok = None
+
+                    # ── H2H szűrő (h2h piac) ─────────────────────────────────
                     if mp["market"] == "h2h" and mp["outcome_key"] in ("home", "away"):
                         sofa_ok = verify_with_sofascore(home, away, mp["outcome_key"])
                         if sofa_ok is False:
                             logger.info(f"H2H kizárt: {home} vs {away} [{mp['pick_label']}]")
                             continue
 
-                    bonus = 1.15 if sofa_ok is True else 1.0
+                    # ── Over/Under statisztikai szűrő (totals piac) ───────────
+                    elif mp["market"] == "totals" and home_id and away_id:
+                        line = mp.get("line")
+                        direction = "over" if "over" in mp["outcome_key"] else "under"
+                        if line is not None:
+                            sofa_ok = verify_totals_pick(home_id, away_id, line, direction)
+                            if sofa_ok is False:
+                                logger.info(f"Totals kizárt (over-ráta): {home} vs {away} [{mp['pick_label']}]")
+                                continue
+
+                    bonus = 1.20 if sofa_ok is True else 1.0
                     final_score = sc * bonus
 
                     if final_score > best_score:
