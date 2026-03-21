@@ -49,6 +49,10 @@ export default defineConfig({
       strict: true,
       deny: ["**/.*"],
     },
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+      "Pragma": "no-cache",
+    },
     proxy: {
       "/api": {
         target: "http://localhost:8080",
