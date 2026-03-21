@@ -254,28 +254,61 @@ def fetch_sofa_total_line(event_id: int) -> dict | None:
 
 # ── Statisztikák és Poisson ────────────────────────────────────────────────────
 
+def is_overtime_match(match: dict) -> bool:
+    """Hosszabbítás volt-e a meccsen (OT felfújja a totalst)."""
+    for side in ("homeScore", "awayScore"):
+        s = match.get(side, {})
+        if s.get("overtime") or s.get("period5") is not None:
+            return True
+    return False
+
+
+def is_back_to_back(last_game_ts: int, start_ts: int) -> bool:
+    """Igaz, ha az előző meccs kevesebb mint 22 órával a mostani előtt volt."""
+    if not last_game_ts:
+        return False
+    return 0 < (start_ts - last_game_ts) / 3600 < 22
+
+
 def calc_team_stats(team_id: int, is_home: bool) -> dict | None:
     """
-    Kiszámolja a csapat off/def ratingét és pace-t az utolsó meccsek alapján.
-    Pace = átlagos pontszám (saját + kapott) / 2 — közelítés SofaScore adatokból.
+    Off/Def rating + pace az utolsó 10 meccsből.
+    - OT meccsek kizárva (felfújják a totalst)
+    - H/A szplit: csak hazai v. vendég meccsek, ha van elég
+    - last_game_ts: back-to-back detektáláshoz
     """
-    matches = fetch_team_last_matches(team_id, last_n=10)
+    matches = fetch_team_last_matches(team_id, last_n=12)
     if len(matches) < MIN_LAST_MATCHES:
         return None
 
+    regular = [m for m in matches if not is_overtime_match(m)]
+
+    # H/A szplit
+    ha_matches = [
+        m for m in regular
+        if (is_home and m.get("homeTeam", {}).get("id") == team_id)
+        or (not is_home and m.get("awayTeam", {}).get("id") == team_id)
+    ]
+    if len(ha_matches) < MIN_LAST_MATCHES:
+        ha_matches = regular
+    if len(ha_matches) < MIN_LAST_MATCHES:
+        return None
+
     scored_list, conceded_list, total_list = [], [], []
-    for m in matches:
-        hs = m.get("homeScore", {}).get("current")
+    last_game_ts = 0
+
+    for m in ha_matches[:10]:
+        hs  = m.get("homeScore", {}).get("current")
         as_ = m.get("awayScore", {}).get("current")
         if hs is None or as_ is None:
             continue
-        my_team_id = m.get("homeTeam", {}).get("id")
-        if my_team_id == team_id:
-            scored_list.append(hs)
-            conceded_list.append(as_)
+        ts = m.get("startTimestamp", 0)
+        if ts > last_game_ts:
+            last_game_ts = ts
+        if m.get("homeTeam", {}).get("id") == team_id:
+            scored_list.append(hs); conceded_list.append(as_)
         else:
-            scored_list.append(as_)
-            conceded_list.append(hs)
+            scored_list.append(as_); conceded_list.append(hs)
         total_list.append(hs + as_)
 
     if len(scored_list) < MIN_LAST_MATCHES:
@@ -284,16 +317,15 @@ def calc_team_stats(team_id: int, is_home: bool) -> dict | None:
     avg_scored   = sum(scored_list)   / len(scored_list)
     avg_conceded = sum(conceded_list) / len(conceded_list)
     avg_total    = sum(total_list)    / len(total_list)
-
-    # Trend: utolsó 5 vs összes
-    last5_total = sum(total_list[-5:]) / 5 if len(total_list) >= 5 else avg_total
+    last5_total  = sum(total_list[-5:]) / 5 if len(total_list) >= 5 else avg_total
 
     return {
-        "off_rating":   round(avg_scored,   1),
-        "def_rating":   round(avg_conceded, 1),
-        "pace":         round(avg_total,    1),
-        "last5_pace":   round(last5_total,  1),
-        "n":            len(scored_list),
+        "off_rating":    round(avg_scored,   1),
+        "def_rating":    round(avg_conceded, 1),
+        "pace":          round(avg_total,    1),
+        "last5_pace":    round(last5_total,  1),
+        "n":             len(scored_list),
+        "last_game_ts":  last_game_ts,
     }
 
 
@@ -435,11 +467,24 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
 
     expected = calc_expected_total(home_stats, away_stats)
 
-    # SofaScore total piac (ingyenes)
+    # Back-to-back büntetés (-7 pont csapatonként ha tegnap is játszottak)
+    b2b_penalty = 0.0
+    if is_back_to_back(home_stats["last_game_ts"], start_ts):
+        b2b_penalty += 7.0
+        logger.info(f"B2B: {home} tegnap is játszott, -7 pont")
+    if is_back_to_back(away_stats["last_game_ts"], start_ts):
+        b2b_penalty += 7.0
+        logger.info(f"B2B: {away} tegnap is játszott, -7 pont")
+    expected = round(expected - b2b_penalty, 1)
+
+    # SofaScore total piac — valódi vonal kötelező (nem becsülünk)
     sofa_line = fetch_sofa_total_line(int(event_id))
-    line      = sofa_line["line"]       if sofa_line else round(expected - 0.5)
-    best_over  = sofa_line["over_odds"] if sofa_line else None
-    best_under = sofa_line["under_odds"] if sofa_line else None
+    if not sofa_line:
+        logger.info(f"Nincs SofaScore total vonal: {home} vs {away} — kihagyva")
+        return None
+    line       = sofa_line["line"]
+    best_over  = sofa_line["over_odds"]
+    best_under = sofa_line["under_odds"]
     n_bookmakers = 1
 
     # H2H
@@ -449,12 +494,12 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
     prob_over  = poisson_over_prob(expected, line)
     prob_under = 1.0 - prob_over
 
-    # Irány meghatározása
-    if prob_over >= 0.58 and expected > line + 3:
+    # Irány: min 5 pont edge és 60%+ valószínűség kell
+    if prob_over >= 0.60 and expected > line + 5:
         direction = "over"
         prob      = prob_over
         odds      = best_over
-    elif prob_under >= 0.58 and expected < line - 3:
+    elif prob_under >= 0.60 and expected < line - 5:
         direction = "under"
         prob      = prob_under
         odds      = best_under
@@ -651,8 +696,20 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🏀 Kosárlabda Over/Under Bot aktív!\n\n"
         "/stat — statisztikák\n"
-        "/lezar — manuális eredmény"
+        "/lezar — manuális eredmény\n"
+        "/scan — azonnali keresés indítása"
     )
+
+
+async def cmd_scan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🔍 Keresés indítása...")
+    bot = context.bot
+    try:
+        await scan_and_send(bot)
+        await update.message.reply_text("✅ Keresés kész.")
+    except Exception as e:
+        logger.error(f"/scan hiba: {e}")
+        await update.message.reply_text(f"❌ Hiba: {e}")
 
 
 async def cmd_stat(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -729,6 +786,7 @@ async def main():
     app.add_handler(CommandHandler("start",  cmd_start))
     app.add_handler(CommandHandler("stat",   cmd_stat))
     app.add_handler(CommandHandler("lezar",  cmd_lezar))
+    app.add_handler(CommandHandler("scan",   cmd_scan))
     app.add_handler(CallbackQueryHandler(callback_handler, pattern=r"^bball_"))
 
     scheduler = AsyncIOScheduler()
