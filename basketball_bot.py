@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 BASKETBALL_BOT_TOKEN = os.environ["BASKETBALL_BOT_TOKEN"]
 BASKETBALL_CHAT_ID   = os.environ["BASKETBALL_CHAT_ID"]
 DATABASE_URL         = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
-ODDS_API_KEY         = os.environ.get("ODDS_API_KEY", "")
 
 SOFASCORE_BASE = "https://www.sofascore.com/api/v1"
 SOFASCORE_HEADERS = {
@@ -38,34 +37,17 @@ SOFASCORE_HEADERS = {
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
 }
-ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 
 # ── Beállítások ────────────────────────────────────────────────────────────────
-MIN_CONFIDENCE      = 72      # minimum megbízhatósági pont (0-100)
-RESULT_DELAY_MIN    = 130     # eredmény lekérdezés késleltetése percekben
+# Teljesen ingyenes — csak SofaScore (NBA, Euroleague, EuroCup, ACB, BBL, Pro A,
+# Lega, BSL, VTB, LKL, PLK, NBB, CBA, NBL, G-League és minden más SofaScore-on)
+MIN_CONFIDENCE      = 72
+RESULT_DELAY_MIN    = 130
 API_DELAY_SEC       = 0.5
-MIN_ODDS            = 1.75    # minimum fogadási szorzó
+MIN_ODDS            = 1.75
 MAX_ODDS            = 2.20
-MIN_LAST_MATCHES    = 5       # minimum ennyi meccs kell a stathoz
-SCAN_HOURS_AHEAD    = 24      # ennyi órán belüli meccseket nézzük
-
-# Ligák (SofaScore sport slug + tournament ID-k)
-BASKETBALL_LEAGUES = [
-    {"sport": "basketball", "name": "NBA",          "tournament_id": 132},
-    {"sport": "basketball", "name": "Euroleague",   "tournament_id": 3},
-    {"sport": "basketball", "name": "EuroCup",      "tournament_id": 8},
-    {"sport": "basketball", "name": "Spain ACB",    "tournament_id": 38},
-    {"sport": "basketball", "name": "Germany BBL",  "tournament_id": 35},
-    {"sport": "basketball", "name": "France Pro A", "tournament_id": 40},
-    {"sport": "basketball", "name": "Italy Lega",   "tournament_id": 39},
-    {"sport": "basketball", "name": "Turkey BSL",   "tournament_id": 37},
-]
-
-# Odds API kosárlabda sport kulcsok (line-shopping)
-ODDS_SPORTS = [
-    "basketball_nba",
-    "basketball_euroleague",
-]
+MIN_LAST_MATCHES    = 5
+SCAN_HOURS_AHEAD    = 24
 
 _cache: dict = {}
 
@@ -220,79 +202,53 @@ def fetch_h2h(event_id: int) -> list:
     return events
 
 
-def fetch_sofa_odds(event_id: int) -> float | None:
-    """SofaScore odds lekérdezés total over/under vonalhoz."""
+def fetch_sofa_total_line(event_id: int) -> dict | None:
+    """
+    SofaScore Total Points piac (ingyenes).
+    Visszaad: {'line': float, 'over_odds': float|None, 'under_odds': float|None}
+    A választás nevéből (pl. "Over 220.5") vagy a marketName-ből veszi ki a vonalat.
+    """
+    import re
     data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}/odds/1/all")
     markets = data.get("markets", [])
+
     for m in markets:
-        if "total" in m.get("marketName", "").lower():
-            for choice in m.get("choices", []):
-                if choice.get("name", "").lower() in ("over", "under"):
-                    val = choice.get("fractionalValue") or choice.get("decimalValue")
-                    if val:
-                        try:
-                            return float(val)
-                        except Exception:
-                            pass
-    return None
+        market_name = m.get("marketName", "").lower()
+        if "total" not in market_name or "player" in market_name:
+            continue
 
+        line = None
+        over_odds = None
+        under_odds = None
 
-# ── Odds API (line-shopping) ───────────────────────────────────────────────────
+        for choice in m.get("choices", []):
+            choice_name = choice.get("name", "")
+            choice_lower = choice_name.lower()
 
-def fetch_odds_api_lines(sport: str, home: str, away: str) -> dict | None:
-    """
-    Visszaad egy dict-et: {'line': float, 'best_over': float, 'best_under': float, 'bookmakers': list}
-    Több iroda összehasonlítása → legjobb over/under vonal és szorzó.
-    """
-    if not ODDS_API_KEY:
-        return None
-    try:
-        r = requests.get(
-            f"{ODDS_API_BASE}/sports/{sport}/odds/",
-            params={
-                "apiKey": ODDS_API_KEY,
-                "regions": "eu,uk",
-                "markets": "totals",
-                "oddsFormat": "decimal",
-            },
-            timeout=15,
-        )
-        if r.status_code != 200:
-            return None
-        events = r.json()
-        for ev in events:
-            h = ev.get("home_team", "").lower()
-            a = ev.get("away_team", "").lower()
-            if home.lower()[:6] not in h and away.lower()[:6] not in a:
+            if line is None:
+                match = re.search(r"(\d+\.?\d*)", choice_name)
+                if match:
+                    try:
+                        line = float(match.group(1))
+                    except Exception:
+                        pass
+
+            val = choice.get("decimalValue") or choice.get("fractionalValue")
+            if not val:
                 continue
-            # Line-shopping: collect all bookmaker totals lines
-            lines_data: dict[float, dict] = {}  # line → {over_odds:[], under_odds:[]}
-            for bm in ev.get("bookmakers", []):
-                for market in bm.get("markets", []):
-                    if market.get("key") != "totals":
-                        continue
-                    for outcome in market.get("outcomes", []):
-                        line = float(outcome.get("point", 0))
-                        side = outcome.get("name", "").lower()
-                        odds = float(outcome.get("price", 0))
-                        if line not in lines_data:
-                            lines_data[line] = {"over": [], "under": [], "bms": []}
-                        lines_data[line][side].append(odds)
-                        lines_data[line]["bms"].append(bm.get("title", ""))
-            if not lines_data:
-                return None
-            # Legtöbb irodától ajánlott vonal
-            best_line = max(lines_data, key=lambda l: len(lines_data[l]["over"]))
-            ld = lines_data[best_line]
-            return {
-                "line":       best_line,
-                "best_over":  max(ld["over"])  if ld["over"]  else None,
-                "best_under": max(ld["under"]) if ld["under"] else None,
-                "n_bookmakers": len(set(ld["bms"])),
-                "all_lines":  sorted(lines_data.keys()),
-            }
-    except Exception as e:
-        logger.debug(f"Odds API hiba ({sport}): {e}")
+            try:
+                odds_val = float(val)
+            except Exception:
+                continue
+
+            if "over" in choice_lower:
+                over_odds = odds_val
+            elif "under" in choice_lower:
+                under_odds = odds_val
+
+        if line is not None and line > 50:  # sanity check: kosárlabda vonal >50
+            return {"line": line, "over_odds": over_odds, "under_odds": under_odds}
+
     return None
 
 
@@ -479,17 +435,12 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
 
     expected = calc_expected_total(home_stats, away_stats)
 
-    # Odds API line-shopping
-    odds_data = None
-    for sport_key in ODDS_SPORTS:
-        odds_data = fetch_odds_api_lines(sport_key, home, away)
-        if odds_data:
-            break
-
-    line         = odds_data["line"]       if odds_data else round(expected - 0.5)
-    best_over    = odds_data["best_over"]  if odds_data else None
-    best_under   = odds_data["best_under"] if odds_data else None
-    n_bookmakers = odds_data["n_bookmakers"] if odds_data else 1
+    # SofaScore total piac (ingyenes)
+    sofa_line = fetch_sofa_total_line(int(event_id))
+    line      = sofa_line["line"]       if sofa_line else round(expected - 0.5)
+    best_over  = sofa_line["over_odds"] if sofa_line else None
+    best_under = sofa_line["under_odds"] if sofa_line else None
+    n_bookmakers = 1
 
     # H2H
     h2h_avg = calc_h2h_avg(int(event_id))
