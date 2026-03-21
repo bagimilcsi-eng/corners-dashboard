@@ -48,7 +48,7 @@ interface Tip {
   odds: number | null;
   start_timestamp: number;
   sent_at: number;
-  result: "win" | "loss" | null;
+  result: "win" | "loss" | "postponed" | null;
   actual_winner: "home" | "away" | null;
 }
 
@@ -91,10 +91,12 @@ router.get("/tips", async (_req, res) => {
 router.get("/tips/stats", async (_req, res) => {
   const tips = await loadTips();
 
-  const settled = tips.filter((t) => t.result !== null);
+  const postponed = tips.filter((t) => t.result === "postponed");
+  const pending = tips.filter((t) => t.result === null);
+  // Settled = win or loss only (postponed excluded from stats)
+  const settled = tips.filter((t) => t.result === "win" || t.result === "loss");
   const wins = settled.filter((t) => t.result === "win");
   const losses = settled.filter((t) => t.result === "loss");
-  const pending = tips.filter((t) => t.result === null);
 
   const winRate = settled.length > 0 ? (wins.length / settled.length) * 100 : 0;
 
@@ -113,11 +115,12 @@ router.get("/tips/stats", async (_req, res) => {
   const roi = roiCount > 0 ? (roiSum / roiCount) * 100 : 0;
   const avgOdds = oddsCount > 0 ? oddsSum / oddsCount : null;
 
-  const leagueMap: Record<string, { wins: number; losses: number; pending: number }> = {};
+  const leagueMap: Record<string, { wins: number; losses: number; pending: number; postponed: number }> = {};
   for (const t of tips) {
-    if (!leagueMap[t.league]) leagueMap[t.league] = { wins: 0, losses: 0, pending: 0 };
+    if (!leagueMap[t.league]) leagueMap[t.league] = { wins: 0, losses: 0, pending: 0, postponed: 0 };
     if (t.result === "win") leagueMap[t.league].wins++;
     else if (t.result === "loss") leagueMap[t.league].losses++;
+    else if (t.result === "postponed") leagueMap[t.league].postponed++;
     else leagueMap[t.league].pending++;
   }
 
@@ -127,6 +130,7 @@ router.get("/tips/stats", async (_req, res) => {
     wins: wins.length,
     losses: losses.length,
     pending: pending.length,
+    postponed: postponed.length,
     winRate: Math.round(winRate * 10) / 10,
     roi: Math.round(roi * 10) / 10,
     avgOdds: avgOdds !== null ? Math.round(avgOdds * 100) / 100 : null,

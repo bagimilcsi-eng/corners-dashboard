@@ -6,9 +6,9 @@ import requests
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, date, timedelta
-from telegram import Bot, Update
+from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 import sys
@@ -626,6 +626,70 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
 
+async def cmd_lezar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manuálisan lezárja a függőben lévő szöglet tippeket."""
+    tips = load_corner_tips()
+    pending = [t for t in tips if t.get("result") is None]
+    if not pending:
+        await update.message.reply_text("Nincs függőben lévő szöglet tipp.")
+        return
+    for t in pending:
+        eid = t["event_id"]
+        tip_dir = "Over" if t.get("tip") == "over" else "Under"
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Nyert", callback_data=f"clezar_win_{eid}"),
+                InlineKeyboardButton("❌ Veszett", callback_data=f"clezar_loss_{eid}"),
+            ]
+        ])
+        await update.message.reply_text(
+            f"⚽ *{t['home']} vs {t['away']}*\n"
+            f"🏆 {t.get('league', '?')}\n"
+            f"🎯 Tipp: *{tip_dir} {t.get('line', 9.5)}* szöglet",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard,
+        )
+
+
+async def callback_clezar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inline gomb lekezelése szöglet manuális lezáráshoz."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # pl. clezar_win_12345
+    parts = data.split("_", 2)
+    if len(parts) != 3:
+        return
+    _, action, event_id_str = parts
+    try:
+        event_id = int(event_id_str)
+    except ValueError:
+        return
+
+    tips = load_corner_tips()
+    tip = next((t for t in tips if str(t["event_id"]) == str(event_id)), None)
+    if not tip:
+        await query.edit_message_text("Tipp nem található.")
+        return
+
+    result = action  # "win" or "loss"
+    # Use a placeholder corner count based on result
+    if result == "win":
+        actual_corners = int(tip.get("line", 9.5)) + (2 if tip.get("tip") == "over" else -2)
+        label = "✅ Nyertként lezárva"
+    else:
+        actual_corners = int(tip.get("line", 9.5)) + (-2 if tip.get("tip") == "over" else 2)
+        label = "❌ Veszettként lezárva"
+
+    update_corner_result(event_id, result, actual_corners)
+    tip_dir = "Over" if tip.get("tip") == "over" else "Under"
+    await query.edit_message_text(
+        f"{label}\n\n"
+        f"⚽ {tip['home']} vs {tip['away']}\n"
+        f"🎯 Tipp: {tip_dir} {tip.get('line', 9.5)} szöglet",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
 # ─────────────────────────────────────────────
 #  MAIN
 # ─────────────────────────────────────────────
@@ -651,6 +715,8 @@ def main():
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("start", cmd_status))
     app.add_handler(CommandHandler("help", cmd_status))
+    app.add_handler(CommandHandler("lezar", cmd_lezar))
+    app.add_handler(CallbackQueryHandler(callback_clezar, pattern=r"^clezar_"))
 
     app.run_polling()
 

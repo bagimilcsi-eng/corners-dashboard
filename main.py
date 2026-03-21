@@ -14,8 +14,8 @@ if os.environ.get("TT_BOT_DISABLED", "").lower() in ("1", "true", "yes"):
     sys.exit(0)
 
 HU_TZ = ZoneInfo("Europe/Budapest")
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from telegram.constants import ParseMode
 
 logging.basicConfig(
@@ -474,7 +474,8 @@ def save_tip_record(record: dict):
 
 def fetch_match_result(event_id: int) -> str | None:
     """
-    Lekéri a meccs végeredményét. Visszaad: 'home', 'away', vagy None ha még nincs vége.
+    Lekéri a meccs végeredményét.
+    Visszaad: 'home', 'away', 'postponed', vagy None ha még nincs vége.
     """
     try:
         r = requests.get(
@@ -485,7 +486,10 @@ def fetch_match_result(event_id: int) -> str | None:
         if r.status_code != 200:
             return None
         event = r.json().get("event", {})
-        if event.get("status", {}).get("type", "").lower() != "finished":
+        status_type = event.get("status", {}).get("type", "").lower()
+        if status_type in ("postponed", "canceled", "cancelled", "abandoned", "interrupted"):
+            return "postponed"
+        if status_type != "finished":
             return None
         hs = event.get("homeScore", {}).get("current", 0) or 0
         as_ = event.get("awayScore", {}).get("current", 0) or 0
@@ -1295,24 +1299,36 @@ def _collect_results_sync() -> list:
         if actual is None:
             continue
 
-        result = "win" if actual == t["predicted"] else "loss"
-        update_tip_result(t["event_id"], result, actual)
-
-        won = result == "win"
-        icon = "✅" if won else "❌"
-        result_text = "NYERT" if won else "VESZETT"
         odds_text = f"{t['odds']:.2f}" if t.get("odds") else "N/A"
         predicted_name = t.get("predicted_name", t.get("predicted", "?"))
 
-        msg = (
-            f"{icon} *Eredmény — {result_text}!*\n\n"
-            f"🏓 {t['home']} vs {t['away']}\n"
-            f"🏆 {t.get('league', '?')}\n"
-            f"🎯 Tippünk: *{predicted_name}*\n"
-            f"📊 Szorzó: {odds_text}\n"
-            f"🏆 Tényleges győztes: {t['home'] if actual == 'home' else t['away']}"
-        )
-        notifications.append((t["event_id"], result, msg))
+        if actual == "postponed":
+            update_tip_result(t["event_id"], "postponed", "postponed")
+            msg = (
+                f"⚠️ *Meccs elmaradt!*\n\n"
+                f"🏓 {t['home']} vs {t['away']}\n"
+                f"🏆 {t.get('league', '?')}\n"
+                f"🎯 Tippünk: *{predicted_name}*\n"
+                f"📊 Szorzó: {odds_text}\n"
+                f"ℹ️ A meccs elmaradt vagy törölték — tipp érvénytelen."
+            )
+        else:
+            result = "win" if actual == t["predicted"] else "loss"
+            update_tip_result(t["event_id"], result, actual)
+            won = result == "win"
+            icon = "✅" if won else "❌"
+            result_text = "NYERT" if won else "VESZETT"
+            msg = (
+                f"{icon} *Eredmény — {result_text}!*\n\n"
+                f"🏓 {t['home']} vs {t['away']}\n"
+                f"🏆 {t.get('league', '?')}\n"
+                f"🎯 Tippünk: *{predicted_name}*\n"
+                f"📊 Szorzó: {odds_text}\n"
+                f"🏆 Tényleges győztes: {t['home'] if actual == 'home' else t['away']}"
+            )
+            actual = result  # store result for logging
+
+        notifications.append((t["event_id"], actual, msg))
 
     return notifications
 
@@ -1456,6 +1472,76 @@ def backfill_prod_api():
     )
 
 
+async def cmd_lezar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Manuálisan lezár egy függőben lévő tippet."""
+    tips = load_tips()
+    pending = [t for t in tips if t.get("result") is None]
+    if not pending:
+        await update.message.reply_text("Nincs függőben lévő tipp.")
+        return
+    for t in pending:
+        predicted_name = t.get("predicted_name", t.get("predicted", "?"))
+        odds_text = f"{t['odds']:.2f}" if t.get("odds") else "N/A"
+        eid = t["event_id"]
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Nyert", callback_data=f"lezar_win_{eid}"),
+                InlineKeyboardButton("❌ Veszett", callback_data=f"lezar_loss_{eid}"),
+                InlineKeyboardButton("⚠️ Elmaradt", callback_data=f"lezar_postponed_{eid}"),
+            ]
+        ])
+        await update.message.reply_text(
+            f"🏓 *{t['home']} vs {t['away']}*\n"
+            f"🏆 {t.get('league', '?')}\n"
+            f"🎯 Tipp: *{predicted_name}* @ {odds_text}",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard,
+        )
+
+
+async def callback_lezar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Inline gomb lekezelése a manuális lezáráshoz."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data  # pl. lezar_win_12345
+    parts = data.split("_", 2)
+    if len(parts) != 3:
+        return
+    _, action, event_id_str = parts
+    try:
+        event_id = int(event_id_str)
+    except ValueError:
+        return
+
+    tips = load_tips()
+    tip = next((t for t in tips if str(t["event_id"]) == str(event_id)), None)
+    if not tip:
+        await query.edit_message_text("Tipp nem található.")
+        return
+
+    if action == "win":
+        update_tip_result(event_id, "win", tip.get("predicted", "home"))
+        label = "✅ Nyertként lezárva"
+    elif action == "loss":
+        other = "away" if tip.get("predicted") == "home" else "home"
+        update_tip_result(event_id, "loss", other)
+        label = "❌ Veszettként lezárva"
+    elif action == "postponed":
+        update_tip_result(event_id, "postponed", "postponed")
+        label = "⚠️ Elmaradtként lezárva"
+    else:
+        return
+
+    predicted_name = tip.get("predicted_name", tip.get("predicted", "?"))
+    await query.edit_message_text(
+        f"{label}\n\n"
+        f"🏓 {tip['home']} vs {tip['away']}\n"
+        f"🏆 {tip.get('league', '?')}\n"
+        f"🎯 Tipp: {predicted_name}",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
 def main():
     logger.info("Sports Bot indul...")
     sync_all_tips_to_kv()
@@ -1477,6 +1563,8 @@ def main():
     app.add_handler(CommandHandler("tt_eredmenyek", cmd_tt_eredmenyek))
     app.add_handler(CommandHandler("tt_ranglista", cmd_tt_ranglista))
     app.add_handler(CommandHandler("tt_statisztika", cmd_tt_statisztika))
+    app.add_handler(CommandHandler("lezar", cmd_lezar))
+    app.add_handler(CallbackQueryHandler(callback_lezar, pattern=r"^lezar_"))
 
     # Labdarúgás
     app.add_handler(CommandHandler("live", cmd_live))

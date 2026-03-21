@@ -10,7 +10,7 @@ export interface Tip {
   odds: number | null;
   start_timestamp: number;
   sent_at: number;
-  result: "win" | "loss" | null;
+  result: "win" | "loss" | "postponed" | null;
   actual_winner: "home" | "away" | null;
 }
 
@@ -20,10 +20,11 @@ export interface TipStats {
   wins: number;
   losses: number;
   pending: number;
+  postponed: number;
   winRate: number;
   roi: number;
   avgOdds: number | null;
-  leagueStats: Record<string, { wins: number; losses: number; pending: number }>;
+  leagueStats: Record<string, { wins: number; losses: number; pending: number; postponed: number }>;
   allTips: Tip[];
 }
 

@@ -20,10 +20,11 @@ import { MonthPicker, buildMonthKeys, isInMonth, type MonthKey } from "@/compone
 import { cn, formatOdds, formatPercentage, formatROI } from "@/lib/utils";
 
 function computeStats(tips: Tip[]) {
-  const settled = tips.filter((t) => t.result !== null);
+  const settled = tips.filter((t) => t.result === "win" || t.result === "loss");
   const wins = settled.filter((t) => t.result === "win").length;
-  const losses = settled.length - wins;
+  const losses = settled.filter((t) => t.result === "loss").length;
   const pending = tips.filter((t) => t.result === null).length;
+  const postponed = tips.filter((t) => t.result === "postponed").length;
   const winRate = settled.length > 0 ? (wins / settled.length) * 100 : 0;
 
   let roiSum = 0, roiCount = 0, oddsSum = 0, oddsCount = 0;
@@ -38,15 +39,16 @@ function computeStats(tips: Tip[]) {
   const roi = roiCount > 0 ? (roiSum / roiCount) * 100 : 0;
   const avgOdds = oddsCount > 0 ? oddsSum / oddsCount : null;
 
-  const leagueMap: Record<string, { wins: number; losses: number; pending: number }> = {};
+  const leagueMap: Record<string, { wins: number; losses: number; pending: number; postponed: number }> = {};
   for (const t of tips) {
-    if (!leagueMap[t.league]) leagueMap[t.league] = { wins: 0, losses: 0, pending: 0 };
+    if (!leagueMap[t.league]) leagueMap[t.league] = { wins: 0, losses: 0, pending: 0, postponed: 0 };
     if (t.result === "win") leagueMap[t.league].wins++;
     else if (t.result === "loss") leagueMap[t.league].losses++;
+    else if (t.result === "postponed") leagueMap[t.league].postponed++;
     else leagueMap[t.league].pending++;
   }
 
-  return { total: tips.length, settled: settled.length, wins, losses, pending, winRate, roi, avgOdds, leagueMap };
+  return { total: tips.length, settled: settled.length, wins, losses, pending, postponed, winRate, roi, avgOdds, leagueMap };
 }
 
 export default function Dashboard() {
@@ -91,7 +93,7 @@ export default function Dashboard() {
   const allTips: Tip[] = data.allTips ?? [];
   const months = buildMonthKeys(allTips.map((t) => t.start_timestamp));
   const filtered = allTips.filter((t) => isInMonth(t.start_timestamp, selectedMonth));
-  const { total, settled, wins, losses, pending, winRate, roi, avgOdds, leagueMap } = computeStats(filtered);
+  const { total, settled, wins, losses, pending, postponed, winRate, roi, avgOdds, leagueMap } = computeStats(filtered);
 
   const statCards = [
     { title: "Összes tipp", value: total, icon: Target, color: "text-blue-500", bg: "bg-blue-500/10" },
@@ -101,6 +103,7 @@ export default function Dashboard() {
     { title: "Nyertes", value: wins, icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
     { title: "Vesztes", value: losses, icon: XCircle, color: "text-destructive", bg: "bg-destructive/10" },
     { title: "Folyamatban", value: pending, icon: Clock, color: "text-warning", bg: "bg-warning/10" },
+    ...(postponed > 0 ? [{ title: "Elmaradt", value: postponed, icon: Activity, color: "text-muted-foreground", bg: "bg-muted/30" }] : []),
   ];
 
   return (
@@ -231,6 +234,8 @@ export default function Dashboard() {
                                 <Badge variant="success" className="shadow-lg shadow-success/20">Nyertes</Badge>
                               ) : tip.result === "loss" ? (
                                 <Badge variant="destructive" className="shadow-lg shadow-destructive/20">Vesztes</Badge>
+                              ) : tip.result === "postponed" ? (
+                                <Badge variant="secondary" className="text-muted-foreground">Elmaradt</Badge>
                               ) : (
                                 <Badge variant="warning" className="shadow-lg shadow-warning/20">Folyamatban</Badge>
                               )}
