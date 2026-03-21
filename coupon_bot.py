@@ -54,7 +54,7 @@ SOFASCORE_HEADERS = {
 }
 
 MIN_PICK_ODDS = 1.28
-MAX_PICK_ODDS = 1.55
+MAX_PICK_ODDS = 1.50
 TARGET_COMBINED = 2.00
 MIN_COMBINED = 1.75
 MAX_COMBINED = 2.60
@@ -488,7 +488,7 @@ def get_team_over_rate(team_id: int, line: float, last_n: int = 7) -> float | No
         return None
     events = [e for e in data.get("events", [])
               if e.get("status", {}).get("type") == "finished"][:last_n]
-    if len(events) < 4:
+    if len(events) < 5:
         return None
     over_count = 0
     for e in events:
@@ -513,14 +513,14 @@ def verify_totals_pick(home_id: int, away_id: int, line: float, direction: str) 
         return None
 
     if direction == "over":
-        if home_rate >= 0.70 and away_rate >= 0.70:
+        if home_rate >= 0.75 and away_rate >= 0.75:
             return True
-        elif home_rate < 0.50 or away_rate < 0.50:
+        elif home_rate < 0.55 or away_rate < 0.55:
             return False
     elif direction == "under":
-        if home_rate <= 0.35 and away_rate <= 0.35:
+        if home_rate <= 0.30 and away_rate <= 0.30:
             return True
-        elif home_rate > 0.55 or away_rate > 0.55:
+        elif home_rate > 0.50 or away_rate > 0.50:
             return False
     return None
 
@@ -551,9 +551,9 @@ def verify_with_sofascore(home_team, away_team, pick_side):
 
     avg = sum(signals) / len(signals)
 
-    if avg >= 0.60:      # emelt küszöb: 60%+ → megerősítve
+    if avg >= 0.67:      # emelt küszöb: 67%+ → megerősítve
         return True
-    elif avg < 0.40:     # 40% alatt → ellentmond
+    elif avg < 0.45:     # 45% alatt → ellentmond
         return False
     return None
 
@@ -1062,8 +1062,8 @@ def _sync_collect_picks():
                         direction = "over" if "over" in mp["outcome_key"] else "under"
                         if line is not None:
                             sofa_ok = verify_totals_pick(home_id, away_id, line, direction)
-                            if sofa_ok is False:
-                                logger.info(f"Totals kizárt (over-ráta): {home} vs {away} [{mp['pick_label']}]")
+                            if sofa_ok is not True:
+                                logger.info(f"Totals kizárt (over-ráta vagy nincs adat): {home} vs {away} [{mp['pick_label']}]")
                                 continue
 
                     bonus = 1.20 if sofa_ok is True else 1.0
