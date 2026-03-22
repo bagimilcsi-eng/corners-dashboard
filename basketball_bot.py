@@ -41,7 +41,7 @@ SOFASCORE_HEADERS = {
 # ── Beállítások ────────────────────────────────────────────────────────────────
 # Teljesen ingyenes — csak SofaScore (NBA, Euroleague, EuroCup, ACB, BBL, Pro A,
 # Lega, BSL, VTB, LKL, PLK, NBB, CBA, NBL, G-League és minden más SofaScore-on)
-MIN_CONFIDENCE      = 58
+MIN_CONFIDENCE      = 70
 RESULT_DELAY_MIN    = 130
 API_DELAY_SEC       = 0.5
 MIN_ODDS            = 1.75
