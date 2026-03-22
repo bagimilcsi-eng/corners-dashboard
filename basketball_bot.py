@@ -41,7 +41,7 @@ SOFASCORE_HEADERS = {
 # ── Beállítások ────────────────────────────────────────────────────────────────
 # Teljesen ingyenes — csak SofaScore (NBA, Euroleague, EuroCup, ACB, BBL, Pro A,
 # Lega, BSL, VTB, LKL, PLK, NBB, CBA, NBL, G-League és minden más SofaScore-on)
-MIN_CONFIDENCE      = 72
+MIN_CONFIDENCE      = 50
 RESULT_DELAY_MIN    = 130
 API_DELAY_SEC       = 0.5
 MIN_ODDS            = 1.75
@@ -494,12 +494,12 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
 
     edge = round(expected - line, 1)
 
-    # Irány: legalább 5 pont edge ÉS 55%+ valószínűség
-    if edge >= 5 and prob_over >= 0.55:
+    # Irány: legalább 3 pont edge ÉS 52%+ valószínűség
+    if edge >= 3 and prob_over >= 0.52:
         direction = "over"
         prob      = prob_over
         odds      = best_over
-    elif edge <= -5 and prob_under >= 0.55:
+    elif edge <= -3 and prob_under >= 0.52:
         direction = "under"
         prob      = prob_under
         odds      = best_under
