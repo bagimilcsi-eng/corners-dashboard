@@ -787,8 +787,8 @@ async def main():
     scheduler = AsyncIOScheduler()
     bot = app.bot
 
-    # Scan: minden 3 órában
-    scheduler.add_job(scan_and_send,    "interval", hours=3,   args=[bot], id="bball_scan",
+    # Scan: minden 1 órában
+    scheduler.add_job(scan_and_send,    "interval", hours=1,   args=[bot], id="bball_scan",
                       next_run_time=datetime.utcnow() + timedelta(seconds=30))
     # Eredmény: minden 20 percben
     scheduler.add_job(check_results,    "interval", minutes=20, args=[bot], id="bball_results")
