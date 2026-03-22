@@ -353,19 +353,22 @@ def calc_expected_total(home_stats: dict, away_stats: dict) -> float:
     - away támadás vs home védekezés
     - súlyozás: forma (last5) 40%, szezon 60%
     """
-    league_avg = (home_stats["pace"] + away_stats["pace"]) / 2
+    # league_avg = per-team átlagpontszám (off_rating, nem game total)
+    league_avg = (home_stats["off_rating"] + away_stats["off_rating"]) / 2
+    if league_avg == 0:
+        league_avg = 110.0
 
-    home_att = (home_stats["off_rating"] / league_avg) if league_avg > 0 else 1.0
-    home_def = (home_stats["def_rating"] / league_avg) if league_avg > 0 else 1.0
-    away_att = (away_stats["off_rating"] / league_avg) if league_avg > 0 else 1.0
-    away_def = (away_stats["def_rating"] / league_avg) if league_avg > 0 else 1.0
+    home_att = home_stats["off_rating"] / league_avg
+    home_def = home_stats["def_rating"] / league_avg
+    away_att = away_stats["off_rating"] / league_avg
+    away_def = away_stats["def_rating"] / league_avg
 
     home_expected = league_avg * home_att * away_def
     away_expected = league_avg * away_att * home_def
     season_total  = home_expected + away_expected
 
-    # Forma korrekció (last5 átlag súlyozva)
-    form_total = home_stats["last5_pace"] * 0.5 + away_stats["last5_pace"] * 0.5
+    # Forma korrekció: mindkét csapat utolsó 5 meccse (game total átlag)
+    form_total = (home_stats["last5_pace"] + away_stats["last5_pace"]) / 2
     blended    = season_total * 0.60 + form_total * 0.40
 
     return round(blended, 1)
