@@ -318,19 +318,18 @@ def calc_team_stats(team_id: int, is_home: bool) -> dict | None:
     }
 
 
-def poisson_prob(lam: float, k: int) -> float:
-    """P(X = k) Poisson-eloszlással."""
-    try:
-        return (math.exp(-lam) * (lam ** k)) / math.factorial(k)
-    except Exception:
-        return 0.0
-
-
 def poisson_over_prob(expected: float, line: float) -> float:
-    """P(total > line) — Poisson közelítés."""
-    threshold = int(math.floor(line))
-    prob_under_eq = sum(poisson_prob(expected, k) for k in range(threshold + 1))
-    return round(1.0 - prob_under_eq, 4)
+    """
+    P(total > line) — normál közelítés (kontinuitás-korrektióval).
+    Basketball totálokhoz (λ≥50) a Poisson ~ N(λ, λ), math.erf alapú.
+    """
+    if expected <= 0:
+        return 0.0
+    # P(X > line)  ahol X ~ Poisson(λ), λ nagy → N(λ, sqrt(λ))
+    # kontinuitás-korrekció: P(X > line) ≈ P(N > line + 0.5)
+    z = (line + 0.5 - expected) / math.sqrt(expected)
+    # P(Z > z) = 0.5 * erfc(z / sqrt(2))
+    return round(0.5 * math.erfc(z / math.sqrt(2)), 4)
 
 
 def calc_expected_total(home_stats: dict, away_stats: dict) -> float:
