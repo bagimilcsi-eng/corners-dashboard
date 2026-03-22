@@ -31,7 +31,7 @@ DATABASE_URL         = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get
 SOFASCORE_BASE = "https://www.sofascore.com/api/v1"
 SOFASCORE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Referer": "https://www.sofascore.com/",
+    "Referer": "https://www.sofascore.com/basketball/livescore",
     "Accept": "application/json, text/plain, */*",
     "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8",
     "Cache-Control": "no-cache",
@@ -41,7 +41,7 @@ SOFASCORE_HEADERS = {
 # ── Beállítások ────────────────────────────────────────────────────────────────
 # Teljesen ingyenes — csak SofaScore (NBA, Euroleague, EuroCup, ACB, BBL, Pro A,
 # Lega, BSL, VTB, LKL, PLK, NBB, CBA, NBL, G-League és minden más SofaScore-on)
-MIN_CONFIDENCE      = 62
+MIN_CONFIDENCE      = 58
 RESULT_DELAY_MIN    = 130
 API_DELAY_SEC       = 0.5
 MIN_ODDS            = 1.75
@@ -207,37 +207,67 @@ def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", name.lower())
 
 
+def _parse_sofa_odds(val) -> float | None:
+    """Fractional ('9/10') vagy decimális ('1.90') odds → float."""
+    if not val:
+        return None
+    s = str(val).strip()
+    if "/" in s:
+        try:
+            n, d = s.split("/")
+            v = float(n) / float(d) + 1.0
+            return round(v, 2) if v >= 1.01 else None
+        except Exception:
+            return None
+    try:
+        v = float(s)
+        return round(v, 2) if v >= 1.01 else None
+    except Exception:
+        return None
+
+
 def fetch_sofascore_totals_line(event_id: int) -> dict | None:
     """
-    SofaScore event odds → totals vonal (ingyenes).
+    SofaScore /odds/1/all → totals vonal (ingyenes, ugyanaz mint corners/coupon bot).
     Visszaad: {"line": float, "over": float|None, "under": float|None} vagy None.
     """
     try:
-        url = f"{SOFASCORE_BASE}/event/{event_id}/odds/1"
+        url = f"{SOFASCORE_BASE}/event/{event_id}/odds/1/all"
         r = requests.get(url, headers=SOFASCORE_HEADERS, timeout=8)
         if r.status_code != 200:
+            logger.info(f"SofaScore odds HTTP {r.status_code} (event={event_id})")
             return None
         data = r.json()
+        if data.get("error"):
+            logger.debug(f"SofaScore odds error (event={event_id}): {data['error']}")
+            return None
         markets = data.get("markets") or []
         for mkt in markets:
             name = (mkt.get("marketName") or mkt.get("name") or "").lower()
-            if "total" not in name and "over" not in name:
+            if not any(kw in name for kw in ["total", "over/under", "points"]):
                 continue
             choices = mkt.get("choices") or []
-            ov  = next((c for c in choices if (c.get("name") or "").lower() == "over"),  None)
-            un  = next((c for c in choices if (c.get("name") or "").lower() == "under"), None)
+            ov = next((c for c in choices
+                       if (c.get("name") or "").lower().startswith("over")), None)
+            un = next((c for c in choices
+                       if (c.get("name") or "").lower().startswith("under")), None)
             if not ov:
                 continue
-            point = ov.get("handicap") or mkt.get("handicap") or 0
-            if not point:
+            # Vonal: "choiceGroup" tartalmazza (pl. "231.5"), nem a choice "handicap" mezője
+            raw_pt = (mkt.get("choiceGroup") or mkt.get("handicap")
+                      or ov.get("handicap") or "")
+            try:
+                line = float(str(raw_pt))
+            except Exception:
                 continue
-            return {
-                "line":  float(point),
-                "over":  float(ov["fractionalValue"]) if ov.get("fractionalValue") else None,
-                "under": float(un["fractionalValue"]) if un and un.get("fractionalValue") else None,
-            }
+            if line < 50:
+                continue
+            over_odds  = _parse_sofa_odds(ov.get("fractionalValue"))
+            under_odds = _parse_sofa_odds(un.get("fractionalValue")) if un else None
+            logger.info(f"SofaScore vonal: {line} | over={over_odds}, under={under_odds} (event={event_id})")
+            return {"line": line, "over": over_odds, "under": under_odds}
     except Exception as e:
-        logger.debug(f"SofaScore odds hiba ({event_id}): {e}")
+        logger.debug(f"SofaScore odds hiba (event={event_id}): {e}")
     return None
 
 
@@ -469,19 +499,20 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
     expected = round(expected - b2b_penalty, 1)
 
     # Vonal: SofaScore bookmaker total (ingyenes) → fallback: pace átlag
-    sofa_odds   = fetch_sofascore_totals_line(int(event_id))
+    sofa_odds = fetch_sofascore_totals_line(int(event_id))
     if sofa_odds and sofa_odds["line"] > 50:
         line         = sofa_odds["line"]
         best_over    = sofa_odds.get("over")
         best_under   = sofa_odds.get("under")
         n_bookmakers = 1
-        logger.info(f"SofaScore vonal: {line} | {home} vs {away}")
+        line_source  = "Bookmaker"
     else:
         pace_avg     = (home_stats["pace"] + away_stats["pace"]) / 2
         line         = round(pace_avg * 2) / 2
         best_over    = None
         best_under   = None
         n_bookmakers = 0
+        line_source  = "Becsült"
         logger.info(f"Pace-alapú vonal: {line} | {home} vs {away}")
 
     # H2H
@@ -543,6 +574,9 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
         "h2h_avg":        h2h_avg,
         "direction":      direction,
         "n_bookmakers":   n_bookmakers,
+        "line_source":    line_source,
+        "best_over":      best_over,
+        "best_under":     best_under,
     }
 
 
@@ -561,6 +595,23 @@ def format_tip_message(t: dict) -> str:
     stars    = confidence_stars(t["confidence_score"])
     direction_emoji = "🔼" if t["direction"] == "over" else "🔽"
 
+    # Vonal forrása
+    src = t.get("line_source", "Becsült")
+    src_tag = "📌 Bukméker" if src == "Bookmaker" else "📐 Becsült (pace)"
+
+    # Szorzók
+    ov_odds = t.get("best_over") or t.get("odds")
+    un_odds = t.get("best_under")
+    direction = t.get("direction", "over")
+    if ov_odds and un_odds:
+        odds_str = f"Over {ov_odds:.2f} / Under {un_odds:.2f}"
+    elif ov_odds and direction == "over":
+        odds_str = f"Over {ov_odds:.2f}"
+    elif un_odds and direction == "under":
+        odds_str = f"Under {un_odds:.2f}"
+    else:
+        odds_str = "n/a"
+
     lines = [
         f"🏀 <b>Kosárlabda Over/Under Tipp</b>",
         f"",
@@ -571,12 +622,10 @@ def format_tip_message(t: dict) -> str:
         f"{direction_emoji} <b>Tipp: {t['tip']}</b>",
         f"📊 Várható összpontszám: <b>{t['expected_total']}</b>",
         f"📈 Valószínűség: <b>{t['prob']*100:.0f}%</b>",
+        f"💰 Szorzó: <b>{odds_str}</b>",
+        f"{src_tag}: <b>{t['line']}</b>",
     ]
 
-    if t.get("odds"):
-        lines.append(f"💰 Legjobb szorzó: <b>{t['odds']:.2f}</b>")
-    if t.get("n_bookmakers", 0) > 1:
-        lines.append(f"🏦 Irodák száma: {t['n_bookmakers']}")
     if t.get("h2h_avg"):
         lines.append(f"🔄 H2H átlag: {t['h2h_avg']} pont/meccs")
 
