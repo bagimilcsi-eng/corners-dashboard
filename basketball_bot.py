@@ -204,50 +204,52 @@ def fetch_h2h(event_id: int) -> list:
 
 def fetch_sofa_total_line(event_id: int) -> dict | None:
     """
-    SofaScore Total Points piac (ingyenes).
+    SofaScore Total Points piac — több bookmaker ID-t próbál (1..9).
     Visszaad: {'line': float, 'over_odds': float|None, 'under_odds': float|None}
-    A választás nevéből (pl. "Over 220.5") vagy a marketName-ből veszi ki a vonalat.
     """
     import re
-    data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}/odds/1/all")
-    markets = data.get("markets", [])
-
-    for m in markets:
-        market_name = m.get("marketName", "").lower()
-        if "total" not in market_name or "player" in market_name:
+    for bm_id in range(1, 4):
+        data = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}/odds/{bm_id}/all")
+        if not data:
             continue
+        markets = data.get("markets", [])
 
-        line = None
-        over_odds = None
-        under_odds = None
-
-        for choice in m.get("choices", []):
-            choice_name = choice.get("name", "")
-            choice_lower = choice_name.lower()
-
-            if line is None:
-                match = re.search(r"(\d+\.?\d*)", choice_name)
-                if match:
-                    try:
-                        line = float(match.group(1))
-                    except Exception:
-                        pass
-
-            val = choice.get("decimalValue") or choice.get("fractionalValue")
-            if not val:
-                continue
-            try:
-                odds_val = float(val)
-            except Exception:
+        for m in markets:
+            market_name = m.get("marketName", "").lower()
+            if "total" not in market_name or "player" in market_name:
                 continue
 
-            if "over" in choice_lower:
-                over_odds = odds_val
-            elif "under" in choice_lower:
-                under_odds = odds_val
+            line = None
+            over_odds = None
+            under_odds = None
 
-        if line is not None and line > 50:  # sanity check: kosárlabda vonal >50
-            return {"line": line, "over_odds": over_odds, "under_odds": under_odds}
+            for choice in m.get("choices", []):
+                choice_name = choice.get("name", "")
+                choice_lower = choice_name.lower()
+
+                if line is None:
+                    match = re.search(r"(\d+\.?\d*)", choice_name)
+                    if match:
+                        try:
+                            line = float(match.group(1))
+                        except Exception:
+                            pass
+
+                val = choice.get("decimalValue") or choice.get("fractionalValue")
+                if not val:
+                    continue
+                try:
+                    odds_val = float(val)
+                except Exception:
+                    continue
+
+                if "over" in choice_lower:
+                    over_odds = odds_val
+                elif "under" in choice_lower:
+                    under_odds = odds_val
+
+            if line is not None and line > 50:
+                return {"line": line, "over_odds": over_odds, "under_odds": under_odds}
 
     return None
 
@@ -477,15 +479,20 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
         logger.info(f"B2B: {away} tegnap is játszott, -7 pont")
     expected = round(expected - b2b_penalty, 1)
 
-    # SofaScore total piac — valódi vonal kötelező (nem becsülünk)
-    sofa_line = fetch_sofa_total_line(int(event_id))
-    if not sofa_line:
-        logger.info(f"Nincs SofaScore total vonal: {home} vs {away} — kihagyva")
-        return None
-    line       = sofa_line["line"]
-    best_over  = sofa_line["over_odds"]
-    best_under = sofa_line["under_odds"]
-    n_bookmakers = 1
+    # SofaScore total piac — ha elérhető, azt használjuk; ha nem, becsüljük
+    sofa_line  = fetch_sofa_total_line(int(event_id))
+    if sofa_line:
+        line       = sofa_line["line"]
+        best_over  = sofa_line["over_odds"]
+        best_under = sofa_line["under_odds"]
+        n_bookmakers = 1
+    else:
+        # Becsült vonal: Poisson várható total kerekítve 0.5-re
+        line         = round(expected * 2) / 2
+        best_over    = None
+        best_under   = None
+        n_bookmakers = 0
+        logger.info(f"Becsült vonal ({line}): {home} vs {away}")
 
     # H2H
     h2h_avg = calc_h2h_avg(int(event_id))

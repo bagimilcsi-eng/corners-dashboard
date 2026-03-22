@@ -438,7 +438,8 @@ def load_tips() -> list:
         return []
 
 
-def save_tip_record(record: dict):
+def save_tip_record(record: dict) -> bool:
+    """Menti a tippet. True ha valóban új volt (sikeres INSERT), False ha már létezett."""
     try:
         conn = get_db_conn()
         with conn:
@@ -465,11 +466,15 @@ def save_tip_record(record: dict):
                         record.get("actual_winner"),
                     ),
                 )
+                inserted = cur.rowcount > 0
         conn.close()
-        sync_tip_to_prod(record)
-        sync_all_tips_to_kv()
+        if inserted:
+            sync_tip_to_prod(record)
+            sync_all_tips_to_kv()
+        return inserted
     except Exception as e:
         logger.error(f"DB save_tip_record hiba: {e}")
+        return False
 
 
 def fetch_match_result(event_id: int) -> str | None:
@@ -1245,13 +1250,15 @@ async def send_startup_tips(app):
             msg, tip_odds, tip_meta = build_tip_message(event, events)
             if msg is None:
                 continue
+            if tip_meta:
+                if not save_tip_record(tip_meta):
+                    logger.info(f"Duplikát kihagyva (startup): event_id={event_id}")
+                    continue
             await app.bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
                 text=msg,
                 parse_mode=ParseMode.MARKDOWN,
             )
-            if tip_meta:
-                save_tip_record(tip_meta)
             sent += 1
         except Exception as e:
             logger.error(f"Startup tipp hiba: {e}")
@@ -1408,13 +1415,15 @@ async def scan_and_send_tips(context):
 
     for msg, tip_meta in tips_to_send:
         try:
+            if tip_meta:
+                if not save_tip_record(tip_meta):
+                    logger.info(f"Duplikát kihagyva (scan): event_id={tip_meta.get('event_id')}")
+                    continue
             await context.bot.send_message(
                 chat_id=TELEGRAM_CHAT_ID,
                 text=msg,
                 parse_mode=ParseMode.MARKDOWN,
             )
-            if tip_meta:
-                save_tip_record(tip_meta)
             logger.info(f"Automatikus tipp elküldve: event_id={tip_meta.get('event_id') if tip_meta else '?'}")
         except Exception as e:
             logger.error(f"Automatikus tipp hiba: {e}")
