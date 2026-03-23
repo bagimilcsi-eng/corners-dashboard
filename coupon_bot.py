@@ -1032,12 +1032,13 @@ def _sync_collect_picks():
                 sport_checked += 1
                 total_checked += 1
 
-                # Forma szűrő: mindkét csapatnak legalább 3/5 győzelem kell
+                # Forma szűrő: legalább egy csapatnak ≥0.60 kell (van kit pikkelni)
                 if home_id and away_id:
                     home_form = get_recent_form(home_id)
                     away_form = get_recent_form(away_id)
-                    if (home_form is not None and home_form < 0.60) or \
-                       (away_form is not None and away_form < 0.60):
+                    hf = home_form if home_form is not None else 0.0
+                    af = away_form if away_form is not None else 0.0
+                    if max(hf, af) < 0.60:
                         logger.info(f"Forma kizárt: {home}={home_form} vs {away}={away_form}")
                         continue
 
