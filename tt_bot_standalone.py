@@ -48,9 +48,9 @@ HU_TZ = ZoneInfo("Europe/Budapest")
 #  BEÁLLÍTÁSOK — itt módosítsd az értékeket
 # ══════════════════════════════════════════════════════════════════════════════
 
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID   = os.environ["TELEGRAM_CHAT_ID"]
-DATABASE_URL       = os.environ["DATABASE_URL"]
+TELEGRAM_BOT_TOKEN = "8785627523:AAFpUodzk6-pEhR6esp8v-V2JA1cjHAFlc4"
+TELEGRAM_CHAT_ID   = "6617439213"
+DATABASE_URL       = "postgresql://postgres.sodpzmupwqeusehszeag:Sanyika2024@aws-1-eu-west-3.pooler.supabase.com:6543/postgres"
 
 # Ligák (kulcsszavak kisbetűsen)
 ALLOWED_KEYWORDS = ["setka", "czech"]
