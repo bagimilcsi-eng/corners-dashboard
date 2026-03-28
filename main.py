@@ -346,9 +346,12 @@ def sofascore_fetch_player_stats(
         return (0, 0), (0, 0)
 
 
-MIN_FORM_MATCHES = 10  # Minimum 10 forma meccs kötelező
-MIN_H2H_MATCHES = 5   # Minimum 5 H2H meccs kötelező
-STRONG_THRESHOLD = 27.5  # Erős tipp küszöb
+MIN_FORM_MATCHES    = 10    # Minimum 10 forma meccs kötelező
+MIN_H2H_MATCHES     = 5    # Minimum 5 H2H meccs kötelező
+STRONG_THRESHOLD    = 27.5  # Erős tipp küszöb
+MIN_H2H_RATE        = 0.70  # H2H győzelem minimum 70%
+MIN_FIRST_SET_RATE  = 0.70  # 1. szett győzelem minimum 70% (ha van elég adat)
+MIN_FORM_DIFF       = 0.20  # Forma különbség minimum 20 százalékpont
 
 
 def calculate_tip(
@@ -366,52 +369,66 @@ def calculate_tip(
     """
     Tipp kiszámítása pontozással. Visszaad: (winner, bizalom, score).
 
-    Feltételek:
+    Kemény feltételek:
     - Min. 10 forma meccs mindkét játékoshoz
-    - Min. 5 H2H meccs kötelező (nélküle nincs tipp)
+    - Min. 5 H2H meccs kötelező
     - H2H és forma irányának egyeznie kell
-    - Első szett arány bónusz komponens
+    - H2H győzelmi arány ≥ 70%
+    - Forma különbség ≥ 20 százalékpont
+    - 1. szett győzelmi arány ≥ 70% (ha van ≥5 adat)
     """
     score = 0.0
 
-    # Minimum 10 forma meccs kötelező
     if home_form_total < MIN_FORM_MATCHES or away_form_total < MIN_FORM_MATCHES:
         return "uncertain", "🔴 Kevés forma adat (min. 10)", score
 
-    # Minimum 5 H2H meccs kötelező
     if h2h_total < MIN_H2H_MATCHES:
         return "uncertain", "🔴 Kevés H2H adat (min. 5)", score
 
-    # Forma arányok
     home_rate = home_form_wins / home_form_total
     away_rate = away_form_wins / away_form_total
+    h2h_rate  = h2h_home_wins / h2h_total
 
-    # H2H komponens (utolsó 5 alapján, súly: 40)
-    h2h_rate = (h2h_home_wins / h2h_total) - 0.5
-    h2h_score = h2h_rate * 40
-
-    # Forma komponens (súly: 30)
+    h2h_score  = (h2h_rate - 0.5) * 40
     form_score = (home_rate - away_rate) * 30
 
-    # Első szett komponens (ha van elég adat, súly: 20)
+    home_fs_rate = (home_fs_wins / home_fs_total) if home_fs_total >= 5 else None
+    away_fs_rate = (away_fs_wins / away_fs_total) if away_fs_total >= 5 else None
     first_set_score = 0.0
-    if home_fs_total >= 5 and away_fs_total >= 5:
-        home_fs_rate = home_fs_wins / home_fs_total
-        away_fs_rate = away_fs_wins / away_fs_total
+    if home_fs_rate is not None and away_fs_rate is not None:
         first_set_score = (home_fs_rate - away_fs_rate) * 20
 
-    # H2H és forma irányának egyeznie kell
     if (h2h_score > 0) != (form_score > 0):
         return "uncertain", "🔴 Ellentmondó jelek (H2H vs forma)", score
 
     score = h2h_score + form_score + first_set_score
 
-    if score >= STRONG_THRESHOLD:
-        return "home", "🟢 Erős tipp", score
-    elif score <= -STRONG_THRESHOLD:
-        return "away", "🟢 Erős tipp", score
-    else:
+    if abs(score) < STRONG_THRESHOLD:
         return "uncertain", "🔴 Bizonytalan", score
+
+    # Győztes irány meghatározása
+    if score > 0:
+        winner  = "home"
+        w_h2h   = h2h_rate
+        w_form  = home_rate
+        l_form  = away_rate
+        w_fs    = home_fs_rate
+    else:
+        winner  = "away"
+        w_h2h   = 1.0 - h2h_rate
+        w_form  = away_rate
+        l_form  = home_rate
+        w_fs    = away_fs_rate
+
+    # Kemény kapuk a győztes oldalára
+    if w_h2h < MIN_H2H_RATE:
+        return "uncertain", f"🔴 H2H gyenge ({w_h2h*100:.0f}% < 70%)", score
+    if w_form - l_form < MIN_FORM_DIFF:
+        return "uncertain", f"🔴 Forma különbség kicsi ({(w_form - l_form)*100:.0f}% < 20%)", score
+    if w_fs is not None and w_fs < MIN_FIRST_SET_RATE:
+        return "uncertain", f"🔴 1. szett gyenge ({w_fs*100:.0f}% < 70%)", score
+
+    return winner, "🟢 Erős tipp", score
 
 
 MIN_ODDS = 1.65  # Csak ennél magasabb szorzójú tippeket mutatjuk
