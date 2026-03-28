@@ -47,6 +47,9 @@ ODDS_API_SPORTS = [
     "soccer_spain_la_liga",
     "soccer_italy_serie_a",
     "soccer_france_ligue_one",
+    "basketball_nba",
+    "basketball_euroleague",
+    "icehockey_nhl",
 ]
 ODDS_QUOTA_FILE = "odds_quota_state.json"
 ODDS_CACHE_FILE  = "odds_api_daily_cache.json"
@@ -58,20 +61,25 @@ SOFASCORE_HEADERS = {
     "Accept-Language": "hu-HU,hu;q=0.9,en-US;q=0.8",
 }
 
-MIN_PICK_ODDS = 1.28
-MAX_PICK_ODDS = 1.50
+MIN_PICK_ODDS = 1.33      # emelt: 1.28 → 1.33 (könyves 75% max)
+MAX_PICK_ODDS = 1.60      # emelt: 1.50 → 1.60 (több edge lehetőség)
 TARGET_COMBINED = 2.00
-MIN_COMBINED = 1.75
+MIN_COMBINED = 1.80       # emelt: 1.75 → 1.80
 MAX_COMBINED = 2.60
 MIN_PICKS = 2
 MAX_PICKS = 3
 MIN_BOOKMAKERS = 1
-MAX_ODDS_STD = 0.12
-MAX_EVENTS_PER_SPORT = 30  # SofaScore rate limit protection
-MAX_TOTAL_EVENTS = 80
+MAX_ODDS_STD = 0.10       # szigorítva: 0.12 → 0.10
+MAX_EVENTS_PER_SPORT = 30
+MAX_TOTAL_EVENTS = 120    # több sport → több esemény
+MIN_H2H_RATE     = 0.65   # H2H arány minimum (külön, nem átlag)
+MIN_FORM_RATE    = 0.65   # Forma arány minimum (külön, nem átlag)
+MIN_PICKED_FORM  = 0.70   # A KIVÁLASZTOTT csapat formája minimum
 
 SOFA_SPORTS = [
     "football",
+    "basketball",
+    "ice-hockey",
 ]
 
 SOFA_TO_EMOJI = {
@@ -532,7 +540,10 @@ def verify_totals_pick(home_id: int, away_id: int, line: float, direction: str) 
 
 def verify_with_sofascore(home_team, away_team, pick_side):
     """
-    H2H + forma szűrő (emelt küszöb: 60% szükséges a megerősítéshez).
+    H2H + forma szűrő — MINDKETTŐ külön kell, nem átlag.
+    H2H >= MIN_H2H_RATE ÉS forma >= MIN_FORM_RATE → True
+    Bármelyik hiányzik → None (elutasítva)
+    Bármelyik alacsony → False
     Returns True / False / None.
     """
     sofa = search_sofa_event(home_team, away_team)
@@ -545,20 +556,13 @@ def verify_with_sofascore(home_team, away_team, pick_side):
     picked_team_id = home_id if pick_side == "home" else away_id
     form_rate = get_recent_form(picked_team_id)
 
-    signals = []
-    if h2h_rate is not None:
-        signals.append(h2h_rate)
-    if form_rate is not None:
-        signals.append(form_rate)
-
-    if not signals:
+    # Mindkét signal szükséges
+    if h2h_rate is None or form_rate is None:
         return None
 
-    avg = sum(signals) / len(signals)
-
-    if avg >= 0.67:      # emelt küszöb: 67%+ → megerősítve
+    if h2h_rate >= MIN_H2H_RATE and form_rate >= MIN_FORM_RATE:
         return True
-    elif avg < 0.45:     # 45% alatt → ellentmond
+    elif h2h_rate < 0.45 or form_rate < 0.40:
         return False
     return None
 
@@ -724,11 +728,12 @@ def _parse_odds_api_event(ev: dict) -> list:
         avg = round(sum(odds_list) / len(odds_list), 3)
         n   = len(odds_list)
         std = round((sum((o - avg) ** 2 for o in odds_list) / n) ** 0.5 if n > 1 else 0.0, 4)
+        _sofa_sport = _sport_key_to_sofa_sport(sport_key)
         if MIN_PICK_ODDS <= avg <= MAX_PICK_ODDS:
             picks.append({
                 "event_id":    f"odds_{ev.get('id', '')}",
                 "sport_key":   sport_key,
-                "sport":       "football",
+                "sport":       _sofa_sport,
                 "home":        home,
                 "away":        away,
                 "market":      market,
@@ -747,10 +752,11 @@ def _parse_odds_api_event(ev: dict) -> list:
     _make("home", f"{home} győz", h2h_home, "h2h")
     _make("away", f"{away} győz", h2h_away, "h2h")
     _make("draw", "Döntetlen",    h2h_draw,  "h2h")
+    _unit = SPORT_UNIT.get(_sport_key_to_sofa_sport(sport_key), "gól")
     for line, ol in totals_over.items():
-        _make(f"over_{line}",  f"Több mint {line} gól",    ol, "totals", line)
+        _make(f"over_{line}",  f"Több mint {line} {_unit}",    ol, "totals", line)
     for line, ol in totals_under.items():
-        _make(f"under_{line}", f"Kevesebb mint {line} gól", ol, "totals", line)
+        _make(f"under_{line}", f"Kevesebb mint {line} {_unit}", ol, "totals", line)
 
     return picks
 
@@ -1037,13 +1043,13 @@ def _sync_collect_picks():
                 sport_checked += 1
                 total_checked += 1
 
-                # Forma szűrő: legalább egy csapatnak ≥0.60 kell (van kit pikkelni)
+                # Forma szűrő: legalább egy csapatnak ≥MIN_PICKED_FORM kell
                 if home_id and away_id:
                     home_form = get_recent_form(home_id)
                     away_form = get_recent_form(away_id)
                     hf = home_form if home_form is not None else 0.0
                     af = away_form if away_form is not None else 0.0
-                    if max(hf, af) < 0.60:
+                    if max(hf, af) < MIN_PICKED_FORM:
                         logger.info(f"Forma kizárt: {home}={home_form} vs {away}={away_form}")
                         continue
 
