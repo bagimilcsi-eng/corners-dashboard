@@ -46,13 +46,17 @@ SOFASCORE_HEADERS = {
 # ── Beállítások ────────────────────────────────────────────────────────────────
 # Teljesen ingyenes — csak SofaScore (NBA, Euroleague, EuroCup, ACB, BBL, Pro A,
 # Lega, BSL, VTB, LKL, PLK, NBB, CBA, NBL, G-League és minden más SofaScore-on)
-MIN_CONFIDENCE      = 76
+MIN_CONFIDENCE      = 82
 RESULT_DELAY_MIN    = 130
 API_DELAY_SEC       = 0.5
-MIN_ODDS            = 1.75
-MAX_ODDS            = 2.20
-MIN_LAST_MATCHES    = 5
+MIN_ODDS            = 1.80
+MAX_ODDS            = 2.10
+MIN_LAST_MATCHES    = 6
 SCAN_HOURS_AHEAD    = 24
+MIN_EDGE            = 5      # min 5 pont edge kell (volt: 3)
+MIN_PROB            = 0.56   # min 56% valószínűség (volt: 52%)
+REQUIRE_BOOKMAKER   = True   # csak könyves vonal (becsült tiltott)
+REQUIRE_H2H         = True   # H2H-nek egyeznie kell az iránnyal
 
 _cache: dict = {}
 
@@ -529,18 +533,34 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
 
     edge = round(expected - line, 1)
 
-    # Irány: legalább 3 pont edge ÉS 52%+ valószínűség
-    if edge >= 3 and prob_over >= 0.52:
+    # Becsült vonal kizárása ha REQUIRE_BOOKMAKER=True
+    if REQUIRE_BOOKMAKER and n_bookmakers == 0:
+        logger.info(f"Becsült vonal kizárva: {home} vs {away}")
+        return None
+
+    # Irány: legalább MIN_EDGE pont edge ÉS MIN_PROB+ valószínűség
+    if edge >= MIN_EDGE and prob_over >= MIN_PROB:
         direction = "over"
         prob      = prob_over
         odds      = best_over
-    elif edge <= -3 and prob_under >= 0.52:
+    elif edge <= -MIN_EDGE and prob_under >= MIN_PROB:
         direction = "under"
         prob      = prob_under
         odds      = best_under
     else:
         logger.info(f"Nincs edge: {home} vs {away} | várható={expected}, vonal={line}, edge={edge:+.1f}")
         return None
+
+    # H2H irány ellenőrzés
+    if REQUIRE_H2H:
+        if h2h_avg is None:
+            logger.info(f"Nincs H2H adat, kizárva: {home} vs {away}")
+            return None
+        h2h_confirms = (direction == "over" and h2h_avg > line) or \
+                       (direction == "under" and h2h_avg < line)
+        if not h2h_confirms:
+            logger.info(f"H2H ellentmond az iránynak: {home} vs {away} | h2h={h2h_avg}, line={line}, dir={direction}")
+            return None
 
     confidence = calc_confidence(
         expected, line, direction, prob, odds, h2h_avg, n_bookmakers
