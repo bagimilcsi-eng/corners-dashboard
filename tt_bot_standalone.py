@@ -252,6 +252,32 @@ def sofascore_fetch_events(target_date: str) -> list:
         return []
 
 
+def sofascore_fetch_live_events() -> list:
+    """Valódi élő meccsek lekérése a live végpontról."""
+    url = "https://api.sofascore.app/api/v1/sport/table-tennis/events/live"
+    try:
+        resp = _ss_get(url, timeout=12)
+        resp.raise_for_status()
+        return resp.json().get("events", [])
+    except Exception as e:
+        logger.error(f"SofaScore live fetch hiba: {e}")
+        return []
+
+
+def sofascore_fetch_multi_day(days: int = 3) -> list:
+    """Több nap eseményeit kéri le (tegnap, ma, holnap stb.)."""
+    all_events = []
+    seen_ids = set()
+    for delta in range(-(days // 2), days // 2 + 1):
+        d = (date.today() + timedelta(days=delta)).isoformat()
+        for e in sofascore_fetch_events(d):
+            eid = e.get("id")
+            if eid and eid not in seen_ids:
+                seen_ids.add(eid)
+                all_events.append(e)
+    return all_events
+
+
 def sofascore_fetch_h2h(event_id: int, home_name: str = "", away_name: str = "") -> tuple:
     """
     H2H utolsó 5 meccs lekérése.
@@ -685,7 +711,7 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
     events = []
     used_date = None
     filtered_events = []
-    for delta in [0, 1]:
+    for delta in [-1, 0, 1]:
         check_date = (date.today() + timedelta(days=delta)).isoformat()
         all_ev     = sofascore_fetch_events(check_date)
         filtered   = [e for e in all_ev if is_allowed(e)]
@@ -695,8 +721,17 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
             used_date       = check_date
             break
 
-    if not events:
-        await update.message.reply_text("❌ Nem találtam Setka Cup vagy Czech Liga meccseket ma/holnap.")
+    # Ha semmi nincs a scheduled-events-ben, próbáljuk a live végpontot
+    if not filtered_events:
+        live_ev = sofascore_fetch_live_events()
+        filtered_live = [e for e in live_ev if is_allowed(e)]
+        if filtered_live:
+            events = live_ev
+            filtered_events = filtered_live
+            used_date = date.today().isoformat()
+
+    if not filtered_events:
+        await update.message.reply_text("❌ Nem találtam Setka Cup vagy Czech Liga meccseket (tegnap/ma/holnap).")
         return
 
     if used_date != date.today().isoformat():
@@ -748,15 +783,13 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_tt_elo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔍 Élő meccsek keresése...")
-    today  = date.today().isoformat()
-    all_ev = sofascore_fetch_events(today)
-    live   = [e for e in all_ev if is_allowed(e) and e.get("status", {}).get("type", "").lower() == "inprogress"]
+    all_live = sofascore_fetch_live_events()
+    live = [e for e in all_live if is_allowed(e)]
 
     if not live:
-        total_live = [e for e in all_ev if e.get("status", {}).get("type", "").lower() == "inprogress"]
         msg = "🏓 Jelenleg nincs élő Setka Cup vagy Czech Liga meccs."
-        if total_live:
-            msg += f"\n_(Más ligában {len(total_live)} élő meccs van.)_"
+        if all_live:
+            msg += f"\n_(Más asztalitenisz ligában {len(all_live)} élő meccs van.)_"
         await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
         return
 
@@ -826,14 +859,13 @@ async def cmd_tt_eredmenyek(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_tt_ranglista(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔍 Mai statisztikák összesítése...")
-    today  = date.today().isoformat()
     events = [
-        e for e in sofascore_fetch_events(today)
+        e for e in sofascore_fetch_multi_day(days=3)
         if is_allowed(e) and e.get("status", {}).get("type", "").lower() == "finished"
     ]
 
     if not events:
-        await update.message.reply_text("❌ Nincs elég befejezett meccs a ranglistához.")
+        await update.message.reply_text("❌ Nincs elég befejezett meccs a ranglistához (tegnap/ma/holnap).")
         return
 
     stats: dict = {}
