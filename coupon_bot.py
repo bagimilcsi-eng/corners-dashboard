@@ -48,7 +48,7 @@ COUPON_BOT_TOKEN = os.environ["COUPON_BOT_TOKEN"]
 COUPON_CHAT_ID = os.environ.get("COUPON_CHAT_ID", "")
 SUPABASE_DB_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
-SOFASCORE_BASE = "https://api.sofascore.com/api/v1"
+SOFASCORE_BASE = "https://814dfd73-d8dd-4560-ab7a-2dea4ca2da33-00-3j0ryo8vfet2i.janeway.replit.dev/api/sofa"
 ODDS_API_KEY  = os.environ.get("ODDS_API_KEY", "")
 ODDS_API_BASE = "https://api.the-odds-api.com/v4"
 ODDS_API_SPORTS = [

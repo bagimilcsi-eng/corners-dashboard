@@ -88,55 +88,22 @@ SCAN_INTERVAL_SEC  = 900    # 15 percenként keres új tippet
 MAX_STARTUP_TIPS   = 20     # Max. tipp indításkor
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  SOFASCORE SESSION (cookie + header alapú, datacenter-barát)
+#  SOFASCORE PROXY (Repliten keresztül — Oracle IP nem blokkolódik)
 # ══════════════════════════════════════════════════════════════════════════════
 
-_SS_SESSION: requests.Session | None = None
-_SS_SESSION_TS: float = 0.0
-_SS_SESSION_TTL: float = 1800.0  # 30 percenként újra cookiez
-
-
-def _get_ss_session():
-    """
-    Visszaad egy session-t SofaScore API-hoz.
-    Ha cloudscraper telepítve van, azt használja (megkerüli a datacenter IP-blokkolást).
-    Különben egyszerű requests.Session + mobil fejléc.
-    """
-    global _SS_SESSION, _SS_SESSION_TS
-    now = time.time()
-    if _SS_SESSION is None or (now - _SS_SESSION_TS) > _SS_SESSION_TTL:
-        if _HAS_CLOUDSCRAPER:
-            sess = _cloudscraper.create_scraper(
-                browser={"browser": "chrome", "platform": "windows", "mobile": False}
-            )
-            logger.info("SofaScore cloudscraper session inicializálva.")
-        else:
-            sess = requests.Session()
-            sess.headers.update({
-                "User-Agent":      "SofaScore/242 CFNetwork/1568.100.1 Darwin/24.0.0",
-                "Accept":          "application/json",
-                "Accept-Language": "hu-HU;q=1.0, en-US;q=0.9",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Connection":      "keep-alive",
-            })
-            logger.info("SofaScore mobil session inicializálva (cloudscraper hiányzik).")
-        _SS_SESSION = sess
-        _SS_SESSION_TS = now
-    return _SS_SESSION
+_SOFA_DIRECT = "https://api.sofascore.app/api/v1"
+_SOFA_PROXY  = "https://814dfd73-d8dd-4560-ab7a-2dea4ca2da33-00-3j0ryo8vfet2i.janeway.replit.dev/api/sofa"
 
 
 def _ss_get(url: str, timeout: int = 12) -> requests.Response:
-    """SofaScore GET – automatikus session refresh + 1x retry 403 esetén."""
-    sess = _get_ss_session()
-    resp = sess.get(url, timeout=timeout)
-    if resp.status_code == 403:
-        logger.warning(f"SofaScore 403 – session reset és retry: {url}")
-        global _SS_SESSION
-        _SS_SESSION = None          # kényszerített újrainit
-        sess = _get_ss_session()
-        time.sleep(1.5)
-        resp = sess.get(url, timeout=timeout)
-    return resp
+    """SofaScore GET – a Replit proxyn keresztül (megkerüli az Oracle IP-blokkolást)."""
+    proxy_url = url.replace(_SOFA_DIRECT, _SOFA_PROXY)
+    try:
+        resp = requests.get(proxy_url, timeout=timeout)
+        return resp
+    except Exception as e:
+        logger.error(f"Proxy GET hiba ({proxy_url}): {e}")
+        raise
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ADATBÁZIS

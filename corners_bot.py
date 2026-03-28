@@ -33,7 +33,7 @@ CORNERS_BOT_TOKEN = os.environ["CORNERS_BOT_TOKEN"]
 CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
 DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
-SOFASCORE_BASE = "https://www.sofascore.com/api/v1"
+SOFASCORE_BASE = "https://814dfd73-d8dd-4560-ab7a-2dea4ca2da33-00-3j0ryo8vfet2i.janeway.replit.dev/api/sofa"
 SOFASCORE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Referer": "https://www.sofascore.com/",
