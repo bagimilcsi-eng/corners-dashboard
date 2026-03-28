@@ -1,10 +1,15 @@
 import os
+import sys
 import asyncio
 import time
 import math
 import logging
 import requests
 import psycopg2
+
+if os.environ.get("BASKETBALL_BOT_DISABLED", "").lower() in ("1", "true", "yes"):
+    print("BASKETBALL_BOT_DISABLED=true — kilépés.")
+    sys.exit(0)
 import psycopg2.extras
 from datetime import datetime, date, timedelta
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup

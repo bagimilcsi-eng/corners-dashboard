@@ -6,10 +6,15 @@ Coupon Bot
 """
 
 import os
+import sys
 import json
 import logging
 import requests
 import psycopg2
+
+if os.environ.get("COUPON_BOT_DISABLED", "").lower() in ("1", "true", "yes"):
+    print("COUPON_BOT_DISABLED=true — kilépés.")
+    sys.exit(0)
 import psycopg2.extras
 import asyncio
 from datetime import datetime, timezone
