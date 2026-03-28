@@ -29,7 +29,16 @@ import requests
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, date, timedelta, timezone
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    try:
+        from backports.zoneinfo import ZoneInfo
+    except ImportError:
+        import pytz
+        class ZoneInfo:
+            def __new__(cls, key):
+                return pytz.timezone(key)
 
 try:
     import cloudscraper as _cloudscraper

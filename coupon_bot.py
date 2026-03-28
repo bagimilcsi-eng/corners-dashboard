@@ -18,7 +18,16 @@ if os.environ.get("COUPON_BOT_DISABLED", "").lower() in ("1", "true", "yes"):
 import psycopg2.extras
 import asyncio
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    try:
+        from backports.zoneinfo import ZoneInfo
+    except ImportError:
+        import pytz
+        class ZoneInfo:
+            def __new__(cls, key):
+                return pytz.timezone(key)
 from itertools import combinations
 
 from telegram import Update

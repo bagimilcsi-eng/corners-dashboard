@@ -7,7 +7,16 @@ import requests
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, date, timedelta, timezone
-from zoneinfo import ZoneInfo
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    try:
+        from backports.zoneinfo import ZoneInfo
+    except ImportError:
+        import pytz
+        class ZoneInfo:
+            def __new__(cls, key):
+                return pytz.timezone(key)
 
 if os.environ.get("TT_BOT_DISABLED", "").lower() in ("1", "true", "yes"):
     print("TT_BOT_DISABLED=true — bot nem indul el ezen a környezeten.")
