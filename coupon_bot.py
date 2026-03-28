@@ -4,6 +4,7 @@ Coupon Bot
 - Cél: ~2.0 összesített szorzó, 2-3 meccs/szelvény
 - Küldési ablak: 08:00-20:00 (Budapest)
 """
+from __future__ import annotations
 
 import os
 import sys

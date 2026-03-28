@@ -19,6 +19,7 @@ Indítás:
 Folyamatos futtatás (systemd vagy screen/tmux ajánlott):
   while true; do python tt_bot_standalone.py; sleep 5; done
 """
+from __future__ import annotations
 
 import os
 import time
