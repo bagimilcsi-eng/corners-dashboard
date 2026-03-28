@@ -11,7 +11,7 @@ Szükséges környezeti változók:
                          pl.: postgresql://user:jelszo@host:5432/adatbazis
 
 Telepítés (Ubuntu/Debian):
-  pip install "python-telegram-bot[job-queue]" requests psycopg2-binary
+  pip install "python-telegram-bot[job-queue]" requests psycopg2-binary cloudscraper
 
 Indítás:
   python tt_bot_standalone.py
@@ -30,6 +30,12 @@ import psycopg2
 import psycopg2.extras
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
+
+try:
+    import cloudscraper as _cloudscraper
+    _HAS_CLOUDSCRAPER = True
+except ImportError:
+    _HAS_CLOUDSCRAPER = False
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -80,25 +86,32 @@ _SS_SESSION_TS: float = 0.0
 _SS_SESSION_TTL: float = 1800.0  # 30 percenként újra cookiez
 
 
-def _get_ss_session() -> requests.Session:
+def _get_ss_session():
     """
-    Visszaad egy requests.Session-t api.sofascore.app-hoz (mobil API).
-    Nem igényel web cookie-kat — datacenter IP-kkel is működik.
+    Visszaad egy session-t SofaScore API-hoz.
+    Ha cloudscraper telepítve van, azt használja (megkerüli a datacenter IP-blokkolást).
+    Különben egyszerű requests.Session + mobil fejléc.
     """
     global _SS_SESSION, _SS_SESSION_TS
     now = time.time()
     if _SS_SESSION is None or (now - _SS_SESSION_TS) > _SS_SESSION_TTL:
-        sess = requests.Session()
-        sess.headers.update({
-            "User-Agent":      "SofaScore/242 CFNetwork/1568.100.1 Darwin/24.0.0",
-            "Accept":          "application/json",
-            "Accept-Language": "hu-HU;q=1.0, en-US;q=0.9",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection":      "keep-alive",
-        })
+        if _HAS_CLOUDSCRAPER:
+            sess = _cloudscraper.create_scraper(
+                browser={"browser": "chrome", "platform": "windows", "mobile": False}
+            )
+            logger.info("SofaScore cloudscraper session inicializálva.")
+        else:
+            sess = requests.Session()
+            sess.headers.update({
+                "User-Agent":      "SofaScore/242 CFNetwork/1568.100.1 Darwin/24.0.0",
+                "Accept":          "application/json",
+                "Accept-Language": "hu-HU;q=1.0, en-US;q=0.9",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Connection":      "keep-alive",
+            })
+            logger.info("SofaScore mobil session inicializálva (cloudscraper hiányzik).")
         _SS_SESSION = sess
         _SS_SESSION_TS = now
-        logger.info("SofaScore mobil session inicializálva.")
     return _SS_SESSION
 
 
