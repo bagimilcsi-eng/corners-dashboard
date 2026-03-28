@@ -11,7 +11,7 @@ Szükséges környezeti változók:
                          pl.: postgresql://user:jelszo@host:5432/adatbazis
 
 Telepítés (Ubuntu/Debian):
-  pip install python-telegram-bot requests psycopg2-binary
+  pip install "python-telegram-bot[job-queue]" requests psycopg2-binary
 
 Indítás:
   python tt_bot_standalone.py
@@ -82,41 +82,23 @@ _SS_SESSION_TTL: float = 1800.0  # 30 percenként újra cookiez
 
 def _get_ss_session() -> requests.Session:
     """
-    Visszaad egy requests.Session-t SofaScore cookie-kkal.
-    30 percenként újrainicializálja, hogy frissek maradjanak a sütik.
+    Visszaad egy requests.Session-t api.sofascore.app-hoz (mobil API).
+    Nem igényel web cookie-kat — datacenter IP-kkel is működik.
     """
     global _SS_SESSION, _SS_SESSION_TS
     now = time.time()
     if _SS_SESSION is None or (now - _SS_SESSION_TS) > _SS_SESSION_TTL:
         sess = requests.Session()
         sess.headers.update({
-            "User-Agent":        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept-Language":   "hu-HU,hu;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Accept-Encoding":   "gzip, deflate, br",
-            "Accept":            "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Connection":        "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-        })
-        # 1. lépés: homepaget látogatjuk → sütiket gyűjtünk
-        try:
-            sess.get("https://www.sofascore.com/", timeout=12)
-            time.sleep(0.8)
-        except Exception as e:
-            logger.warning(f"SofaScore homepage init hiba: {e}")
-        # 2. lépés: API fejlécek hozzáadása
-        sess.headers.update({
-            "Accept":          "application/json, text/plain, */*",
-            "Referer":         "https://www.sofascore.com/",
-            "Origin":          "https://www.sofascore.com",
-            "sec-fetch-dest":  "empty",
-            "sec-fetch-mode":  "cors",
-            "sec-fetch-site":  "same-origin",
-            "Cache-Control":   "no-cache",
-            "Pragma":          "no-cache",
+            "User-Agent":      "SofaScore/242 CFNetwork/1568.100.1 Darwin/24.0.0",
+            "Accept":          "application/json",
+            "Accept-Language": "hu-HU;q=1.0, en-US;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection":      "keep-alive",
         })
         _SS_SESSION = sess
         _SS_SESSION_TS = now
-        logger.info("SofaScore session (re)inicializálva.")
+        logger.info("SofaScore mobil session inicializálva.")
     return _SS_SESSION
 
 
@@ -237,7 +219,7 @@ def update_tip_result(event_id: int, result: str, actual_winner: str):
 
 
 def sofascore_fetch_events(target_date: str) -> list:
-    url = f"https://www.sofascore.com/api/v1/sport/table-tennis/scheduled-events/{target_date}"
+    url = f"https://api.sofascore.app/api/v1/sport/table-tennis/scheduled-events/{target_date}"
     try:
         resp = _ss_get(url, timeout=12)
         resp.raise_for_status()
@@ -252,7 +234,7 @@ def sofascore_fetch_h2h(event_id: int, home_name: str = "", away_name: str = "")
     H2H utolsó 5 meccs lekérése.
     Visszaad: (home_wins, total) — minimum 5 meccs kell, különben (0, 0).
     """
-    url = f"https://www.sofascore.com/api/v1/event/{event_id}/h2h"
+    url = f"https://api.sofascore.app/api/v1/event/{event_id}/h2h"
     try:
         resp = _ss_get(url, timeout=8)
         if resp.status_code != 200:
@@ -317,7 +299,7 @@ def _parse_choice_odd(c: dict):
 
 
 def sofascore_fetch_odds(event_id: int):
-    url = f"https://www.sofascore.com/api/v1/event/{event_id}/odds/1/all"
+    url = f"https://api.sofascore.app/api/v1/event/{event_id}/odds/1/all"
     try:
         resp = _ss_get(url, timeout=8)
         if resp.status_code != 200:
@@ -348,7 +330,7 @@ def sofascore_fetch_player_stats(team_id: int, last: int = 10) -> tuple:
     Visszaad: ((forma_w, forma_t), (fs_w, fs_t))
     """
     cutoff = int(datetime.now(timezone.utc).timestamp()) - 14 * 24 * 3600
-    url = f"https://www.sofascore.com/api/v1/team/{team_id}/events/last/0"
+    url = f"https://api.sofascore.app/api/v1/team/{team_id}/events/last/0"
     try:
         resp = _ss_get(url, timeout=8)
         if resp.status_code != 200:
@@ -504,7 +486,7 @@ def format_event_line(event: dict) -> str:
 
 def fetch_match_result(event_id: int):
     try:
-        r = _ss_get(f"https://www.sofascore.com/api/v1/event/{event_id}", timeout=8)
+        r = _ss_get(f"https://api.sofascore.app/api/v1/event/{event_id}", timeout=8)
         if r.status_code != 200:
             return None
         event       = r.json().get("event", {})
