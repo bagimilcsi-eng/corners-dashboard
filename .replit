@@ -156,7 +156,3 @@ channel = "stable-25_05"
 
 [userenv.shared]
 CORNERS_CHAT_ID = "6617439213"
-TT_BOT_DISABLED = "true"
-BASKETBALL_BOT_DISABLED = "true"
-COUPON_BOT_DISABLED = "true"
-CORNERS_BOT_DISABLED = "true"

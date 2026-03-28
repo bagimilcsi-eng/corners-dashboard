@@ -93,16 +93,17 @@ MAX_STARTUP_TIPS   = 20     # Max. tipp indításkor
 
 _SOFA_DIRECT = "https://api.sofascore.app/api/v1"
 _SOFA_PROXY  = "https://814dfd73-d8dd-4560-ab7a-2dea4ca2da33-00-3j0ryo8vfet2i.janeway.replit.dev/api/sofa"
+_ON_REPLIT   = bool(os.environ.get("REPL_ID"))
 
 
 def _ss_get(url: str, timeout: int = 12) -> requests.Response:
-    """SofaScore GET – a Replit proxyn keresztül (megkerüli az Oracle IP-blokkolást)."""
-    proxy_url = url.replace(_SOFA_DIRECT, _SOFA_PROXY)
+    """SofaScore GET – Repliten közvetlen, Oracle-n a proxyn keresztül."""
+    target_url = url if _ON_REPLIT else url.replace(_SOFA_DIRECT, _SOFA_PROXY)
     try:
-        resp = requests.get(proxy_url, timeout=timeout)
+        resp = requests.get(target_url, timeout=timeout)
         return resp
     except Exception as e:
-        logger.error(f"Proxy GET hiba ({proxy_url}): {e}")
+        logger.error(f"SofaScore GET hiba ({target_url}): {e}")
         raise
 
 # ══════════════════════════════════════════════════════════════════════════════
