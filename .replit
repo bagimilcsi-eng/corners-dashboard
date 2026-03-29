@@ -119,6 +119,10 @@ args = "Coupon Bot"
 task = "workflow.run"
 args = "Basketball Bot"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Multi Sport Bot"
+
 [[workflows.workflow]]
 name = "Coupon Bot"
 author = "agent"
@@ -137,6 +141,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "bash -c 'while true; do python basketball_bot.py; echo \"Bot leállt, újraindítás 5 mp múlva...\"; sleep 5; done'"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Multi Sport Bot"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash -c 'while true; do python multi_sport_bot.py; echo \"Multi Sport Bot leállt, újraindítás 5 mp múlva...\"; sleep 5; done'"
 
 [workflows.workflow.metadata]
 outputType = "console"
