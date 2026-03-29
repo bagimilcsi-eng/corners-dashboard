@@ -187,9 +187,12 @@ def fractional_to_decimal(frac: str) -> float | None:
 
 
 def is_allowed(event: dict) -> bool:
-    """Csak TT Cup meccsek (backtest alapján legjobb ROI: ~+17%, 58%+ WR, odds>=1.80)."""
+    """Csak TT Cup meccsek (backtest alapján legjobb ROI: ~+17%, 58%+ WR, odds>=1.80).
+    Csak a tournament.name-t ellenőrizzük, a category.name-t NEM —
+    mert a SofaScore-ban a 'TT Cup' a kategória neve, és alatta
+    'Setka Cup', 'Czech Liga Pro' stb. versenyek is szerepelnek."""
     t = event.get("tournament", {})
-    text = (t.get("name", "") + " " + t.get("category", {}).get("name", "")).lower()
+    text = t.get("name", "").lower()
     return any(kw in text for kw in ALLOWED_KEYWORDS)
 
 
