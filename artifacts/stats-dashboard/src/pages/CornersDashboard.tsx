@@ -240,6 +240,14 @@ export default function CornersDashboard() {
         </div>
         <div className="flex items-center gap-3">
           <a
+            href="/backtest_report.html"
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium text-green-400"
+          >
+            📊 Backtest riport →
+          </a>
+          <a
             href={`${import.meta.env.BASE_URL || "/"}coupons`}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
           >
