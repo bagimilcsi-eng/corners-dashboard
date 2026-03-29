@@ -66,17 +66,37 @@ REQUIRE_H2H         = True
 UNDER_MIN_EDGE       = 8
 UNDER_MIN_CONFIDENCE = 86
 
-# ── Liga szűrők (backtest tanulsága) ───────────────────────────────────────────
-# Csak valós ligák; virtuális/esport/2K meccsek kizárva
+# ── Liga szűrők (backtest tanulsága, optimalizált) ─────────────────────────────
+# Backtest eredmény:
+#   NBA OVER:     67% WR, +25% ROI  ✓
+#   G League:     75% WR, +41% ROI  ✓
+#   CBA (kínai):  30% WR, -44% ROI  ✗  → kizárva
+#   NBL West/East (baltikumi): 24-53% → kizárva
 MAJOR_LEAGUE_KEYWORDS = [
-    "nba", "euroleague", "eurocup", "acb", "endesa",
-    "bbl", "turkish", "bsl", "lega basket", "pro a", "betclic elite",
-    "vtb", "nbl", "g league", "g-league", "nbb", "cba", "lkl", "plk",
-    "adriatic", "aba", "bsn", "7days",
+    "nba", "euroleague", "eurocup", "7days",
+    "acb", "endesa",
+    "bbl",                       # British Basketball League
+    "turkish basketball super",  # BSL pontosan
+    "lega basket", "serie a",
+    "pro a", "betclic elite",    # Francia Pro A
+    "vtb",
+    "nbl",                       # Australian NBL (West/East alatta kizárva)
+    "g league", "g-league",
+    "nbb",                       # Brazília
+    "lkl",                       # Litvánia
+    "plk",                       # Lengyelország
+    "adriatic", "aba",
+    "bsn",
 ]
+# CBA szándékosan kihagyva (backtest: 30% WR, -44% ROI OVER irányban)
+
 EXCLUDE_LEAGUE_KEYWORDS = [
     "cyber", "nexlvl", "esport", "esports", "virtual", "2k", "gamer",
     "vcopa", "vleague", "e-league",
+    # NBL baltikumi al-konferenciák (kizárva)
+    "nbl, west", "nbl, east",
+    # Playoff/döntő formátumok ahol a modell nem működik (12% WR)
+    "championship round", "commissioners cup",
 ]
 
 _cache: dict = {}
