@@ -17,17 +17,20 @@ const SPORT_LABELS: Record<string, string> = {
   "volleyball": "🏐 Röplabda",
 };
 
+const isWin  = (r: string | null) => r === "win"  || r === "won";
+const isLoss = (r: string | null) => r === "loss" || r === "lost";
+
 function computeStats(tips: MultiSportTip[]) {
-  const settled = tips.filter((t) => t.result === "win" || t.result === "loss");
-  const wins    = settled.filter((t) => t.result === "win").length;
-  const losses  = settled.filter((t) => t.result === "loss").length;
+  const settled = tips.filter((t) => isWin(t.result) || isLoss(t.result));
+  const wins    = settled.filter((t) => isWin(t.result)).length;
+  const losses  = settled.filter((t) => isLoss(t.result)).length;
   const pending = tips.filter((t) => t.result === null).length;
   const winRate = settled.length > 0 ? (wins / settled.length) * 100 : 0;
 
   let roiSum = 0, roiCount = 0, oddsSum = 0, oddsCount = 0;
   for (const t of settled) {
     if (t.odds) {
-      roiSum += t.result === "win" ? Number(t.odds) - 1 : -1;
+      roiSum += isWin(t.result) ? Number(t.odds) - 1 : -1;
       roiCount++;
       oddsSum += Number(t.odds);
       oddsCount++;
@@ -40,9 +43,9 @@ function computeStats(tips: MultiSportTip[]) {
   for (const t of tips) {
     const key = t.sport;
     if (!sportMap[key]) sportMap[key] = { wins: 0, losses: 0, pending: 0 };
-    if (t.result === "win")        sportMap[key].wins++;
-    else if (t.result === "loss")  sportMap[key].losses++;
-    else                           sportMap[key].pending++;
+    if (isWin(t.result))        sportMap[key].wins++;
+    else if (isLoss(t.result))  sportMap[key].losses++;
+    else                        sportMap[key].pending++;
   }
 
   return { total: tips.length, settled: settled.length, wins, losses, pending, winRate, roi, avgOdds, sportMap };
@@ -244,9 +247,9 @@ export default function MultiSportDashboard() {
                               {format(new Date(tip.start_timestamp * 1000), "MMM d. HH:mm", { locale: hu })}
                             </td>
                             <td className="px-6 py-4 text-right">
-                              {tip.result === "win"  ? <Badge variant="success"     className="shadow-lg shadow-success/20">Nyertes</Badge>
-                              : tip.result === "loss" ? <Badge variant="destructive" className="shadow-lg shadow-destructive/20">Vesztes</Badge>
-                              :                         <Badge variant="warning"     className="shadow-lg shadow-warning/20">Folyamatban</Badge>}
+                              {isWin(tip.result)  ? <Badge variant="success"     className="shadow-lg shadow-success/20">Nyertes</Badge>
+                              : isLoss(tip.result) ? <Badge variant="destructive" className="shadow-lg shadow-destructive/20">Vesztes</Badge>
+                              :                      <Badge variant="warning"     className="shadow-lg shadow-warning/20">Folyamatban</Badge>}
                             </td>
                           </tr>
                         ))}
