@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TT Cup Bot – 6 hónapos backtest eredmény</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #0d1117;
+    color: #e6edf3;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+    padding: 32px 16px 48px;
+  }
+
+  .container {
+    max-width: 860px;
+    margin: 0 auto;
+  }
+
+  /* HEADER */
+  .header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  .badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #1a7f37, #2ea043);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 5px 14px;
+    border-radius: 20px;
+    margin-bottom: 16px;
+  }
+  .header h1 {
+    font-size: 32px;
+    font-weight: 800;
+    background: linear-gradient(90deg, #58a6ff, #3fb950);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+  }
+  .header .sub {
+    color: #8b949e;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+  }
+
+  /* STAT CARDS */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 14px;
+    padding: 22px 18px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: var(--accent, #58a6ff);
+    border-radius: 14px 14px 0 0;
+  }
+  .stat-card.green { --accent: #3fb950; }
+  .stat-card.blue  { --accent: #58a6ff; }
+  .stat-card.gold  { --accent: #d29922; }
+  .stat-card.teal  { --accent: #39d353; }
+  .stat-card.red   { --accent: #f85149; }
+  .stat-card.purple{ --accent: #bc8cff; }
+
+  .stat-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #8b949e;
+    margin-bottom: 10px;
+  }
+  .stat-value {
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--accent, #e6edf3);
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .stat-note {
+    font-size: 12px;
+    color: #6e7681;
+  }
+
+  /* CHART */
+  .card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 14px;
+    padding: 24px;
+    margin-bottom: 20px;
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #8b949e;
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card-title::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 14px;
+    background: #3fb950;
+    border-radius: 2px;
+  }
+
+  /* MONTHLY TABLE */
+  .month-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .month-table th {
+    text-align: left;
+    color: #8b949e;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-bottom: 1px solid #21262d;
+  }
+  .month-table th:not(:first-child) { text-align: center; }
+  .month-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #21262d;
+    color: #c9d1d9;
+  }
+  .month-table td:not(:first-child) { text-align: center; }
+  .month-table tr:last-child td { border-bottom: none; }
+  .month-table tr:hover td { background: #1c2128; }
+
+  .tag-win  { color: #3fb950; font-weight: 700; }
+  .tag-loss { color: #f85149; font-weight: 700; }
+  .roi-pos  { color: #3fb950; font-weight: 700; }
+  .roi-neg  { color: #f85149; font-weight: 700; }
+  .profit-pos { color: #3fb950; font-weight: 600; }
+  .profit-neg { color: #f85149; font-weight: 600; }
+
+  /* FILTER BOX */
+  .filter-box {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 16px 20px;
+    font-size: 13px;
+    color: #8b949e;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  .filter-item strong {
+    color: #e6edf3;
+  }
+
+  /* FOOTER */
+  .footer {
+    text-align: center;
+    margin-top: 40px;
+    color: #484f58;
+    font-size: 12px;
+    line-height: 1.8;
+  }
+  .footer a { color: #58a6ff; text-decoration: none; }
+
+  /* TOTAL ROW */
+  .total-row td {
+    background: #1c2128 !important;
+    font-weight: 700;
+    color: #e6edf3 !important;
+    border-top: 2px solid #30363d !important;
+  }
+
+  @media (max-width: 600px) {
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .stat-value { font-size: 28px; }
+    .header h1 { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="badge">⚡ Backtest Eredmény</div>
+    <h1>TT Cup Ping-pong Bot</h1>
+    <p class="sub">6 hónap · 2025. október – 2026. március · Flat 1 unit tét</p>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card green">
+      <div class="stat-label">ROI</div>
+      <div class="stat-value">+19.8%</div>
+      <div class="stat-note">6 hónap alatt</div>
+    </div>
+    <div class="stat-card blue">
+      <div class="stat-label">Találati arány</div>
+      <div class="stat-value">59.2%</div>
+      <div class="stat-note">122 / 206 nyertes</div>
+    </div>
+    <div class="stat-card gold">
+      <div class="stat-label">Flat profit</div>
+      <div class="stat-value">+40.7u</div>
+      <div class="stat-note">egységnyi nyereség</div>
+    </div>
+    <div class="stat-card teal">
+      <div class="stat-label">Nyereséges hónap</div>
+      <div class="stat-value">5 / 6</div>
+      <div class="stat-note">83% nyereséges hónap</div>
+    </div>
+    <div class="stat-card red">
+      <div class="stat-label">Max visszaesés</div>
+      <div class="stat-value">-6.68u</div>
+      <div class="stat-note">maximális drawdown</div>
+    </div>
+    <div class="stat-card purple">
+      <div class="stat-label">Összes tipp</div>
+      <div class="stat-value">206</div>
+      <div class="stat-note">~1.15 tipp / nap</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Kumulatív egyenleg (flat 1u)</div>
+    <canvas id="profitChart" height="90"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Havi bontás</div>
+    <table class="month-table">
+      <thead>
+        <tr>
+          <th>Hónap</th>
+          <th>Tippek</th>
+          <th>Találati %</th>
+          <th>Profit</th>
+          <th>ROI</th>
+          <th>Eredmény</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>2025. október</td>
+          <td>27</td>
+          <td>44%</td>
+          <td class="profit-neg">-3.36u</td>
+          <td class="roi-neg">-12.4%</td>
+          <td class="tag-loss">✗</td>
+        </tr>
+        <tr>
+          <td>2025. november</td>
+          <td>27</td>
+          <td>74%</td>
+          <td class="profit-pos">+15.95u</td>
+          <td class="roi-pos">+59.1%</td>
+          <td class="tag-win">✓</td>
+        </tr>
+        <tr>
+          <td>2025. december</td>
+          <td>38</td>
+          <td>66%</td>
+          <td class="profit-pos">+10.01u</td>
+          <td class="roi-pos">+26.3%</td>
+          <td class="tag-win">✓</td>
+        </tr>
+        <tr>
+          <td>2026. január</td>
+          <td>38</td>
+          <td>58%</td>
+          <td class="profit-pos">+6.50u</td>
+          <td class="roi-pos">+17.1%</td>
+          <td class="tag-win">✓</td>
+        </tr>
+        <tr>
+          <td>2026. február</td>
+          <td>39</td>
+          <td>62%</td>
+          <td class="profit-pos">+9.17u</td>
+          <td class="roi-pos">+23.5%</td>
+          <td class="tag-win">✓</td>
+        </tr>
+        <tr>
+          <td>2026. március</td>
+          <td>37</td>
+          <td>51%</td>
+          <td class="profit-pos">+2.42u</td>
+          <td class="roi-pos">+6.5%</td>
+          <td class="tag-win">✓</td>
+        </tr>
+        <tr class="total-row">
+          <td>ÖSSZESEN</td>
+          <td>206</td>
+          <td>59.2%</td>
+          <td class="profit-pos">+40.70u</td>
+          <td class="roi-pos">+19.8%</td>
+          <td class="tag-win">5/6 ✓</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Stratégia szűrők</div>
+    <div class="filter-box">
+      <div class="filter-item">🏆 Liga: <strong>TT Cup</strong></div>
+      <div class="filter-item">📊 Min. szorzó: <strong>1.80</strong></div>
+      <div class="filter-item">📈 Min. forma különbség: <strong>20%</strong></div>
+      <div class="filter-item">🔁 Min. H2H meccs: <strong>5</strong></div>
+      <div class="filter-item">⚡ Min. score: <strong>27.5</strong></div>
+      <div class="filter-item">📅 Tesztelve: <strong>2025-10 – 2026-03</strong></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>A backtest historikus adatokon alapul · A múltbeli teljesítmény nem garantálja a jövőbeli eredményeket</p>
+    <p>Flat 1 unit tét · Tippelj felelősségteljesen</p>
+  </div>
+
+</div>
+
+<script>
+const labels = ["2025-10-04","2025-10-05","2025-10-06","2025-10-07","2025-10-08","2025-10-09","2025-10-11","2025-10-12","2025-10-17","2025-10-18","2025-10-21","2025-10-22","2025-10-23","2025-10-24","2025-10-25","2025-10-26","2025-10-27","2025-10-29","2025-10-30","2025-10-31","2025-11-05","2025-11-06","2025-11-07","2025-11-09","2025-11-13","2025-11-14","2025-11-15","2025-11-16","2025-11-18","2025-11-19","2025-11-20","2025-11-21","2025-11-22","2025-11-23","2025-12-01","2025-12-02","2025-12-08","2025-12-09","2025-12-10","2025-12-12","2025-12-13","2025-12-14","2025-12-15","2025-12-16","2025-12-18","2025-12-19","2025-12-20","2025-12-21","2025-12-23","2025-12-24","2025-12-26","2025-12-27","2025-12-28","2025-12-29","2025-12-30","2025-12-31","2026-01-01","2026-01-04","2026-01-05","2026-01-06","2026-01-07","2026-01-08","2026-01-10","2026-01-11","2026-01-12","2026-01-14","2026-01-15","2026-01-16","2026-01-17","2026-01-18","2026-01-19","2026-01-20","2026-01-21","2026-01-23","2026-01-24","2026-01-26","2026-01-27","2026-01-28","2026-01-29","2026-01-30","2026-01-31","2026-02-01","2026-02-02","2026-02-03","2026-02-04","2026-02-05","2026-02-08","2026-02-09","2026-02-11","2026-02-12","2026-02-16","2026-02-17","2026-02-19","2026-02-20","2026-02-21","2026-02-22","2026-02-23","2026-02-24","2026-02-25","2026-02-26","2026-02-27","2026-02-28","2026-03-01","2026-03-02","2026-03-03","2026-03-04","2026-03-05","2026-03-06","2026-03-07","2026-03-10","2026-03-11","2026-03-12","2026-03-13","2026-03-14","2026-03-15","2026-03-17","2026-03-18","2026-03-19","2026-03-20","2026-03-21","2026-03-23","2026-03-25","2026-03-26","2026-03-28"];
+const values = [-1,-3,-2,-1,0.2,1.4,0.4,1.23,1.33,0.33,-0.67,-1.67,-1.67,-0.87,-1.07,-1.27,-2.27,-1.36,-2.36,-3.36,-2.56,-1.76,-0.96,0.14,3.17,5.37,6.57,7.77,8.6,11.26,13.75,13.49,12.49,12.59,13.39,14.19,14.99,15.79,16.59,15.59,15.42,16.33,17.07,17.73,18.83,20.93,20.93,19.93,20.76,21.84,22.04,21.24,21.15,21.86,21.77,22.6,23.43,25.05,28.28,28.88,26.88,26.68,27.68,28.68,29.68,28.68,29.3,29.21,29.12,28.12,27.12,28.37,29.62,27.62,25.62,24.62,24.53,25.44,27.35,28.26,29.09,28.89,30.49,31.29,30.29,29.29,30.29,30.29,33.44,35.04,37.87,40.7,41.53,41.36,39.36,39.61,40.86,39.86,39.66,39.46,38.46,38.26,37.06,37.44,38.81,37.81,37.61,38.71,40.81,39.81,38.61,40.21,41.01,42.11,43.21,42.21,43.04,43.67,42.3,41.3,40.3,40.67,41.67,40.67];
+
+const ctx = document.getElementById('profitChart').getContext('2d');
+
+const gradient = ctx.createLinearGradient(0, 0, 0, 260);
+gradient.addColorStop(0, 'rgba(63, 185, 80, 0.25)');
+gradient.addColorStop(1, 'rgba(63, 185, 80, 0.0)');
+
+new Chart(ctx, {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [{
+      label: 'Egyenleg (unit)',
+      data: values,
+      borderColor: '#3fb950',
+      backgroundColor: gradient,
+      borderWidth: 2,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+      pointHoverBackgroundColor: '#3fb950',
+      fill: true,
+      tension: 0.3,
+    }]
+  },
+  options: {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#1c2128',
+        borderColor: '#30363d',
+        borderWidth: 1,
+        titleColor: '#8b949e',
+        bodyColor: '#e6edf3',
+        callbacks: {
+          label: ctx => ` ${ctx.parsed.y > 0 ? '+' : ''}${ctx.parsed.y.toFixed(2)}u`
+        }
+      }
+    },
+    scales: {
+      x: {
+        grid: { color: '#21262d' },
+        ticks: {
+          color: '#8b949e',
+          maxTicksLimit: 8,
+          font: { size: 11 }
+        }
+      },
+      y: {
+        grid: { color: '#21262d' },
+        ticks: {
+          color: '#8b949e',
+          font: { size: 11 },
+          callback: v => (v > 0 ? '+' : '') + v + 'u'
+        }
+      }
+    }
+  }
+});
+</script>
+</body>
+</html>
