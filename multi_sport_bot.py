@@ -47,36 +47,39 @@ SOFASCORE_HEADERS = {
 # ── Sport konfigurációk ────────────────────────────────────────────────────────
 SPORT_CONFIGS = {
     "ice-hockey": {
-        "label":       "Jégkorong",
-        "emoji":       "🏒",
-        "sofa_slug":   "ice-hockey",
-        "min_line":    3.5,
-        "max_line":    12.0,
+        "label":        "Jégkorong",
+        "emoji":        "🏒",
+        "sofa_slug":    "ice-hockey",
+        "min_line":     3.5,
+        "max_line":     12.0,
         "min_expected": 3.0,
-        "use_exact_poisson": True,   # kis számok → egzakt Poisson
-        "ot_keys":     ["overtime", "period4", "period5"],
-        "line_kw":     ["total", "over/under", "goals", "puck"],
-        "referer":     "https://www.sofascore.com/ice-hockey/livescore",
+        "min_edge":     0.7,   # gólokban (hoki: tipikus vonal ~5.5-6.5)
+        "use_exact_poisson": True,
+        "ot_keys":      ["overtime", "period4", "period5"],
+        "line_kw":      ["total", "over/under", "goals", "puck"],
+        "referer":      "https://www.sofascore.com/ice-hockey/livescore",
     },
     "handball": {
-        "label":       "Kézilabda",
-        "emoji":       "🤾",
-        "sofa_slug":   "handball",
-        "min_line":    40.0,
-        "max_line":    90.0,
+        "label":        "Kézilabda",
+        "emoji":        "🤾",
+        "sofa_slug":    "handball",
+        "min_line":     40.0,
+        "max_line":     90.0,
         "min_expected": 35.0,
+        "min_edge":     3.0,   # gólokban (tipikus vonal ~54-65)
         "use_exact_poisson": False,
-        "ot_keys":     ["overtime"],
-        "line_kw":     ["total", "over/under", "goals"],
-        "referer":     "https://www.sofascore.com/handball/livescore",
+        "ot_keys":      ["overtime"],
+        "line_kw":      ["total", "over/under", "goals"],
+        "referer":      "https://www.sofascore.com/handball/livescore",
     },
     "volleyball": {
-        "label":       "Röplabda",
-        "emoji":       "🏐",
-        "sofa_slug":   "volleyball",
-        "min_line":    150.0,
-        "max_line":    320.0,
+        "label":        "Röplabda",
+        "emoji":        "🏐",
+        "sofa_slug":    "volleyball",
+        "min_line":     150.0,
+        "max_line":     320.0,
         "min_expected": 140.0,
+        "min_edge":     12.0,  # pontokban (tipikus vonal ~200-260)
         "use_exact_poisson": False,
         "ot_keys":     [],
         "line_kw":     ["total", "over/under", "points", "maps"],
@@ -535,16 +538,17 @@ def analyze_event(event: dict, sport_key: str, cfg: dict, sent_ids: set) -> dict
 
     edge = round(expected - line, 2)
 
-    if edge >= MIN_EDGE and prob_over >= MIN_PROB:
+    min_edge = cfg["min_edge"]
+    if edge >= min_edge and prob_over >= MIN_PROB:
         direction = "over"
         prob      = prob_over
         odds      = best_over
-    elif edge <= -MIN_EDGE and prob_under >= MIN_PROB:
+    elif edge <= -min_edge and prob_under >= MIN_PROB:
         direction = "under"
         prob      = prob_under
         odds      = best_under
     else:
-        logger.info(f"Nincs edge: {home} vs {away} | várható={expected}, vonal={line}, edge={edge:+.2f}")
+        logger.info(f"Nincs edge: {home} vs {away} | várható={expected}, vonal={line}, edge={edge:+.2f} (min={min_edge})")
         return None
 
     confidence = calc_confidence(expected, line, direction, prob, odds, h2h_avg)
@@ -842,6 +846,14 @@ async def post_init(app: Application):
     app.bot_data["scheduler"] = scheduler
 
     logger.info("Multi-Sport bot inicializálva, startup scan indul...")
+    try:
+        await app.bot.send_message(
+            chat_id=MULTI_SPORT_CHAT_ID,
+            text="🏒🤾🏐 <b>Multi-Sport Bot elindult</b>\nScan indul (jégkorong · kézilabda · röplabda)...",
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logger.warning(f"Startup üzenet nem küldhető: {e}")
     await scan_and_send(app)
 
 
