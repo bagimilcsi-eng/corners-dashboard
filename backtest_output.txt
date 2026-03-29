@@ -148,3 +148,75 @@
    2026-02-24 | tippek: 1202 (635W/567L) | ma: 15
    2026-02-25 | tippek: 1219 (644W/575L) | ma: 17
    2026-02-26 | tippek: 1239 (652W/587L) | ma: 20
+   2026-02-27 | tippek: 1246 (652W/594L) | ma: 7
+   2026-02-28 | tippek: 1250 (655W/595L) | ma: 4
+   2026-03-01 | tippek: 1261 (659W/602L) | ma: 11
+   2026-03-02 | tippek: 1279 (667W/612L) | ma: 18
+   2026-03-03 | tippek: 1302 (677W/625L) | ma: 23
+   2026-03-04 | tippek: 1315 (683W/632L) | ma: 13
+   2026-03-05 | tippek: 1333 (696W/637L) | ma: 18
+   2026-03-06 | tippek: 1341 (701W/640L) | ma: 8
+   2026-03-07 | tippek: 1351 (707W/644L) | ma: 10
+   2026-03-08 | tippek: 1364 (712W/652L) | ma: 13
+   2026-03-09 | tippek: 1375 (716W/659L) | ma: 11
+   2026-03-10 | tippek: 1391 (720W/671L) | ma: 16
+   2026-03-11 | tippek: 1417 (734W/683L) | ma: 26
+   2026-03-12 | tippek: 1439 (747W/692L) | ma: 22
+   2026-03-13 | tippek: 1464 (761W/703L) | ma: 25
+   2026-03-14 | tippek: 1484 (776W/708L) | ma: 20
+   2026-03-15 | tippek: 1504 (787W/717L) | ma: 20
+   2026-03-16 | tippek: 1518 (796W/722L) | ma: 14
+   2026-03-17 | tippek: 1535 (803W/732L) | ma: 17
+   2026-03-18 | tippek: 1549 (811W/738L) | ma: 14
+   2026-03-19 | tippek: 1567 (822W/745L) | ma: 18
+   2026-03-20 | tippek: 1582 (829W/753L) | ma: 15
+   2026-03-21 | tippek: 1592 (834W/758L) | ma: 10
+   2026-03-22 | tippek: 1603 (840W/763L) | ma: 11
+   2026-03-23 | tippek: 1618 (849W/769L) | ma: 15
+   2026-03-24 | tippek: 1637 (862W/775L) | ma: 19
+   2026-03-25 | tippek: 1661 (878W/783L) | ma: 24
+   2026-03-26 | tippek: 1683 (889W/794L) | ma: 22
+   2026-03-27 | tippek: 1699 (897W/802L) | ma: 16
+   2026-03-28 | tippek: 1712 (903W/809L) | ma: 13
+
+════════════════════════════════════════════════════════════════
+ BACKTEST EREDMÉNY  –  180 nap  |  Setka Cup + Czech Liga
+════════════════════════════════════════════════════════════════
+ Vizsgált meccsek összesen:       207765
+   kiszűrve (forma <10):        27992
+   kiszűrve (H2H <5 meccs):      53501
+   kiszűrve (bizonytalan):         116700
+   kiszűrve (nincs odds):          4468
+   kiszűrve (odds <1.65):        3102
+   döntetlen/egyéb:                290
+
+  ► ADOTT TIPPEK: 1712
+
+  Nyertes:        903  (52.7%)
+  Vesztes:        809
+  ROI:            -1.1%
+  Átlag szorzó:   1.90
+  Flat profit:    -18.29 unit
+  Profit Factor:  0.98
+  Max drawdown:   -63.50 unit
+
+ Liga bontás:
+   Setka Cup                              402/805  49.9%
+   Czech Liga Pro                         316/589  53.7%
+   TT Cup                                 185/318  58.2%
+
+ Havi bontás:
+   2025-09    1/1    (100.0%)  ROI: +90.9%
+   2025-10   65/123  (52.8%)  ROI: -3.5%
+   2025-11   73/125  (58.4%)  ROI: +10.6%
+   2025-12  139/261  (53.3%)  ROI: -1.2%
+   2026-01  194/385  (50.4%)  ROI: -5.8%
+   2026-02  183/355  (51.5%)  ROI: -1.5%
+   2026-03  248/462  (53.7%)  ROI: +0.5%
+
+ Részletes tippek → backtest_results.json
+════════════════════════════════════════════════════════════════
+ MEGJEGYZÉS: Forma és H2H csak Setka/Czech meccsekből számítva.
+ A valós bot más TT ligákat is figyelembe vesz.
+
+DONE
