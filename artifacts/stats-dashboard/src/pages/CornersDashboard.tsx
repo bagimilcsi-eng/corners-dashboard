@@ -248,6 +248,12 @@ export default function CornersDashboard() {
             📊 Backtest riport →
           </a>
           <a
+            href={import.meta.env.BASE_URL || "/"}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
+          >
+            🏓 Asztalitenisz →
+          </a>
+          <a
             href={`${import.meta.env.BASE_URL || "/"}coupons`}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
           >

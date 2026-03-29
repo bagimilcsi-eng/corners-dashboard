@@ -1,8 +1,9 @@
-import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
+import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
+import Dashboard from "@/pages/Dashboard";
 import CornersDashboard from "@/pages/CornersDashboard";
 import CouponDashboard from "@/pages/CouponDashboard";
 import BasketballDashboard from "@/pages/BasketballDashboard";
@@ -20,7 +21,7 @@ const queryClient = new QueryClient({
 function Router() {
   return (
     <Switch>
-      <Route path="/">{() => <Redirect to="/corners" />}</Route>
+      <Route path="/" component={Dashboard} />
       <Route path="/corners" component={CornersDashboard} />
       <Route path="/coupons" component={CouponDashboard} />
       <Route path="/basketball" component={BasketballDashboard} />
