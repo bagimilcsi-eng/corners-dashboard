@@ -50,8 +50,6 @@ SOFASCORE_HEADERS = {
 }
 
 # ── Beállítások ────────────────────────────────────────────────────────────────
-# Teljesen ingyenes — csak SofaScore (NBA, Euroleague, EuroCup, ACB, BBL, Pro A,
-# Lega, BSL, VTB, LKL, PLK, NBB, CBA, NBL, G-League és minden más SofaScore-on)
 MIN_CONFIDENCE      = 82
 RESULT_DELAY_MIN    = 130
 API_DELAY_SEC       = 0.5
@@ -59,10 +57,27 @@ MIN_ODDS            = 1.80
 MAX_ODDS            = 2.10
 MIN_LAST_MATCHES    = 6
 SCAN_HOURS_AHEAD    = 24
-MIN_EDGE            = 5      # min 5 pont edge kell (volt: 3)
-MIN_PROB            = 0.56   # min 56% valószínűség (volt: 52%)
-REQUIRE_BOOKMAKER   = True   # csak könyves vonal (becsült tiltott)
-REQUIRE_H2H         = True   # H2H-nek egyeznie kell az iránnyal
+MIN_EDGE            = 5      # OVER irányhoz (backtest: +2.4% ROI)
+MIN_PROB            = 0.56
+REQUIRE_BOOKMAKER   = True
+REQUIRE_H2H         = True
+
+# UNDER irányhoz szigorúbb küszöbök (backtest: 41.8% WR, -21.3% ROI)
+UNDER_MIN_EDGE       = 8
+UNDER_MIN_CONFIDENCE = 86
+
+# ── Liga szűrők (backtest tanulsága) ───────────────────────────────────────────
+# Csak valós ligák; virtuális/esport/2K meccsek kizárva
+MAJOR_LEAGUE_KEYWORDS = [
+    "nba", "euroleague", "eurocup", "acb", "endesa",
+    "bbl", "turkish", "bsl", "lega basket", "pro a", "betclic elite",
+    "vtb", "nbl", "g league", "g-league", "nbb", "cba", "lkl", "plk",
+    "adriatic", "aba", "bsn", "7days",
+]
+EXCLUDE_LEAGUE_KEYWORDS = [
+    "cyber", "nexlvl", "esport", "esports", "virtual", "2k", "gamer",
+    "vcopa", "vleague", "e-league",
+]
 
 _cache: dict = {}
 
@@ -467,6 +482,22 @@ def calc_confidence(
     return max(0, min(100, score))
 
 
+# ── Liga szűrő ─────────────────────────────────────────────────────────────────
+
+def is_valid_league(event: dict) -> bool:
+    """
+    Csak ismert major ligák fogadhatók el.
+    Virtuális/cyber/esport ligák mindig kizárva.
+    """
+    t    = event.get("tournament", {})
+    name = (t.get("name", "") + " " + t.get("category", {}).get("name", "")).lower()
+    # Kizárás: virtuális / esport
+    if any(kw in name for kw in EXCLUDE_LEAGUE_KEYWORDS):
+        return False
+    # Befoglalás: csak major liga
+    return any(kw in name for kw in MAJOR_LEAGUE_KEYWORDS)
+
+
 # ── Fő elemzés ─────────────────────────────────────────────────────────────────
 
 def analyze_event(event: dict, sent_ids: set) -> dict | None:
@@ -476,6 +507,9 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
 
     status = event.get("status", {}).get("type", "")
     if status not in ("notstarted",):
+        return None
+
+    if not is_valid_league(event):
         return None
 
     start_ts = event.get("startTimestamp", 0)
@@ -544,12 +578,13 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
         logger.info(f"Becsült vonal kizárva: {home} vs {away}")
         return None
 
-    # Irány: legalább MIN_EDGE pont edge ÉS MIN_PROB+ valószínűség
+    # Irány meghatározás – OVER és UNDER eltérő küszöbökkel
+    # (Backtest: OVER 54.4%/+2.4% ROI, UNDER 41.8%/-21.3% ROI → UNDER sokkal szigorúbb)
     if edge >= MIN_EDGE and prob_over >= MIN_PROB:
         direction = "over"
         prob      = prob_over
         odds      = best_over
-    elif edge <= -MIN_EDGE and prob_under >= MIN_PROB:
+    elif edge <= -UNDER_MIN_EDGE and prob_under >= MIN_PROB:
         direction = "under"
         prob      = prob_under
         odds      = best_under
@@ -572,8 +607,10 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
         expected, line, direction, prob, odds, h2h_avg, n_bookmakers
     )
 
-    if confidence < MIN_CONFIDENCE:
-        logger.info(f"Alacsony konfidencia ({confidence}): {home} vs {away}")
+    # UNDER irányhoz magasabb konfidencia kell
+    min_conf_required = UNDER_MIN_CONFIDENCE if direction == "under" else MIN_CONFIDENCE
+    if confidence < min_conf_required:
+        logger.info(f"Alacsony konfidencia ({confidence} < {min_conf_required}): {home} vs {away}")
         return None
 
     tip_label = f"{'OVER' if direction == 'over' else 'UNDER'} {line}"
