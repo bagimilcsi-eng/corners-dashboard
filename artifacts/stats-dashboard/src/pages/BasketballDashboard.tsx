@@ -107,6 +107,7 @@ export default function BasketballDashboard() {
           <a href={`${import.meta.env.BASE_URL || "/"}`}             className={NAV_LINK}>🏓 TT Bot →</a>
           <a href={`${import.meta.env.BASE_URL || "/"}corners`}      className={NAV_LINK}>⚽ Szöglet →</a>
           <a href={`${import.meta.env.BASE_URL || "/"}coupons`}      className={NAV_LINK}>🎯 Szelvény →</a>
+          <a href={`${import.meta.env.BASE_URL || "/"}multi-sport`}  className={NAV_LINK}>🏒🤾🏐 Multi →</a>
           <button onClick={() => refetch()} disabled={isFetching}
             className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm">
             <RefreshCcw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />

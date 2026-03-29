@@ -7,6 +7,7 @@ import Dashboard from "@/pages/Dashboard";
 import CornersDashboard from "@/pages/CornersDashboard";
 import CouponDashboard from "@/pages/CouponDashboard";
 import BasketballDashboard from "@/pages/BasketballDashboard";
+import MultiSportDashboard from "@/pages/MultiSportDashboard";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -24,6 +25,7 @@ function Router() {
       <Route path="/corners" component={CornersDashboard} />
       <Route path="/coupons" component={CouponDashboard} />
       <Route path="/basketball" component={BasketballDashboard} />
+      <Route path="/multi-sport" component={MultiSportDashboard} />
       <Route component={NotFound} />
     </Switch>
   );
