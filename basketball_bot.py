@@ -13,6 +13,7 @@ if os.environ.get("BASKETBALL_BOT_DISABLED", "").lower() in ("1", "true", "yes")
     sys.exit(0)
 import psycopg2.extras
 from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -530,6 +531,12 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
         return None
 
     if not is_valid_league(event):
+        return None
+
+    # 21:00 CET után ne küldjünk új tippet — az éjszakai NBA meccseket
+    # a 19:00-21:00 CET közötti scan már kiadja, lefekvés előtt fogadható
+    _now_cet = datetime.now(ZoneInfo("Europe/Budapest"))
+    if _now_cet.hour >= 21:
         return None
 
     start_ts = event.get("startTimestamp", 0)
