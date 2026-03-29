@@ -67,6 +67,11 @@ REQUIRE_H2H         = True
 UNDER_MIN_EDGE       = 8
 UNDER_MIN_CONFIDENCE = 86
 
+# H2H nélküli fallback (európai ligák) — dupla edge + magasabb konfidencia
+# Csak nagyon erős szignálnál engedjük át (1-2 minőségi tipp naponta)
+MIN_EDGE_NO_H2H     = 10
+MIN_CONF_NO_H2H     = 88
+
 # ── Liga szűrők (backtest tanulsága, optimalizált) ─────────────────────────────
 # Backtest eredmény:
 #   NBA OVER:     67% WR, +25% ROI  ✓
@@ -620,10 +625,16 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
         return None
 
     # H2H irány ellenőrzés
-    if REQUIRE_H2H:
-        if h2h_avg is None:
-            logger.info(f"Nincs H2H adat, kizárva: {home} vs {away}")
+    if h2h_avg is None:
+        # Nincs H2H adat (jellemzően európai ligák) — csak nagyon erős edge esetén
+        # engedjük át (dupla küszöb), hogy napközben 1-2 minőségi tipp jöhessen
+        no_h2h_edge_ok = (direction == "over"  and edge >= MIN_EDGE_NO_H2H) or \
+                         (direction == "under" and abs(edge) >= MIN_EDGE_NO_H2H)
+        if not no_h2h_edge_ok:
+            logger.info(f"Nincs H2H, edge nem elég ({edge:+.1f} < {MIN_EDGE_NO_H2H}): {home} vs {away}")
             return None
+        logger.info(f"Nincs H2H, de erős edge ({edge:+.1f}) → magasabb küszöbcel elfogadva: {home} vs {away}")
+    else:
         h2h_confirms = (direction == "over" and h2h_avg > line) or \
                        (direction == "under" and h2h_avg < line)
         if not h2h_confirms:
@@ -634,8 +645,14 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
         expected, line, direction, prob, odds, h2h_avg, n_bookmakers
     )
 
-    # UNDER irányhoz magasabb konfidencia kell
-    min_conf_required = UNDER_MIN_CONFIDENCE if direction == "under" else MIN_CONFIDENCE
+    # Konfidencia küszöb: H2H nélkül szigorúbb (MIN_CONF_NO_H2H), egyébként normál
+    if h2h_avg is None:
+        min_conf_required = max(
+            MIN_CONF_NO_H2H,
+            UNDER_MIN_CONFIDENCE if direction == "under" else MIN_CONFIDENCE
+        )
+    else:
+        min_conf_required = UNDER_MIN_CONFIDENCE if direction == "under" else MIN_CONFIDENCE
     if confidence < min_conf_required:
         logger.info(f"Alacsony konfidencia ({confidence} < {min_conf_required}): {home} vs {away}")
         return None
