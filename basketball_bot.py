@@ -67,10 +67,11 @@ REQUIRE_H2H         = True
 UNDER_MIN_EDGE       = 8
 UNDER_MIN_CONFIDENCE = 86
 
-# H2H nélküli fallback (európai ligák) — dupla edge + magasabb konfidencia
-# Csak nagyon erős szignálnál engedjük át (1-2 minőségi tipp naponta)
-MIN_EDGE_NO_H2H     = 10
-MIN_CONF_NO_H2H     = 88
+# H2H nélküli fallback — normál edge, de arányos konfidencia küszöb
+# Max confidence H2H nélkül = 85 (nincs +15 H2H bónusz), ezért arányosan:
+# 82/100 * 85 ≈ 70 → ez az egyenértékű küszöb H2H nélkül
+MIN_EDGE_NO_H2H     = 5
+MIN_CONF_NO_H2H     = 70
 
 # ── Liga szűrők (backtest tanulsága, optimalizált) ─────────────────────────────
 # Backtest eredmény:
