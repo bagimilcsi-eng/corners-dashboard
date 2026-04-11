@@ -22,10 +22,10 @@ BASE = "https://www.sofascore.com/api/v1"
 ALLOWED        = ["setka", "czech"]
 MIN_FORM       = 8      # main.py: MIN_FORM_MATCHES = 8
 MIN_H2H        = 5      # main.py: MIN_H2H_MATCHES = 5
-THRESHOLD      = 26.5   # main.py: STRONG_THRESHOLD = 26.5
-MIN_H2H_RATE   = 0.65   # main.py: MIN_H2H_RATE = 0.65
-MIN_FS_RATE    = 0.60   # main.py: MIN_FIRST_SET_RATE = 0.60
-MIN_FORM_DIFF  = 0.20   # main.py: MIN_FORM_DIFF = 0.20
+THRESHOLD      = 38.0   # main.py: STRONG_THRESHOLD = 38.0
+MIN_H2H_RATE   = 0.72   # main.py: MIN_H2H_RATE = 0.72
+MIN_FS_RATE    = 0.65   # main.py: MIN_FIRST_SET_RATE = 0.65
+MIN_FORM_DIFF  = 0.28   # main.py: MIN_FORM_DIFF = 0.28
 MIN_ODDS       = 1.55   # main.py: MIN_ODDS = 1.55
 FORM_DAYS      = 14
 H2H_DAYS       = 90

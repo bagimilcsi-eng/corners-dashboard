@@ -360,10 +360,10 @@ def sofascore_fetch_player_stats(
 
 MIN_FORM_MATCHES         = 8     # Minimum 8 forma meccs kötelező
 MIN_H2H_MATCHES          = 5     # Min. 5 H2H meccs – kötelező
-STRONG_THRESHOLD         = 26.5  # Erős tipp küszöb (H2H kötelező, max ~70 pont)
-MIN_H2H_RATE             = 0.65  # H2H győzelmi arány minimum 65%
-MIN_FIRST_SET_RATE       = 0.60  # 1. szett győzelmi arány minimum 60% (ha van ≥5 adat)
-MIN_FORM_DIFF            = 0.20  # Forma különbség minimum 20 százalékpont
+STRONG_THRESHOLD         = 38.0  # Erős tipp küszöb (H2H kötelező, max ~70 pont)
+MIN_H2H_RATE             = 0.72  # H2H győzelmi arány minimum 72%
+MIN_FIRST_SET_RATE       = 0.65  # 1. szett győzelmi arány minimum 65% (ha van ≥5 adat)
+MIN_FORM_DIFF            = 0.28  # Forma különbség minimum 28 százalékpont
 
 
 def calculate_tip(
