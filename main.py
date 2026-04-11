@@ -37,6 +37,9 @@ TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 PROD_API_URL = os.environ.get("PROD_API_URL", "").rstrip("/")
 REPLIT_DB_URL = os.environ.get("REPLIT_DB_URL", "")
 
+# Összes chat ID ahova az automatikus tippek mennek
+TELEGRAM_CHAT_IDS = [6617439213, -1003802326194, -1003835559510]
+
 SOFASCORE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Accept": "application/json, text/plain, */*",
@@ -60,7 +63,7 @@ FOOTBALL_API_HEADERS = {
     "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
 }
 
-ALLOWED_KEYWORDS = ["tt cup"]
+ALLOWED_KEYWORDS = ["setka", "czech"]
 
 
 # ─────────────────────────────────────────────
@@ -187,11 +190,9 @@ def fractional_to_decimal(frac: str) -> float | None:
 
 
 def is_allowed(event: dict) -> bool:
-    """Csak TT Cup meccsek (backtest alapján legjobb ROI: ~+17%, 58%+ WR, odds>=1.80).
-    A SofaScore-ban: category.name='Czech Republic', tournament.name='TT Cup'.
-    A tournament.name-t kell ellenőrizni."""
-    t = event.get("tournament", {})
-    text = t.get("name", "").lower()
+    """Setka Cup és Czech Liga meccsek — mindkét helyen van H2H adat a SofaScore-ban."""
+    t    = event.get("tournament", {})
+    text = (t.get("name", "") + " " + t.get("category", {}).get("name", "")).lower()
     return any(kw in text for kw in ALLOWED_KEYWORDS)
 
 
@@ -358,11 +359,10 @@ def sofascore_fetch_player_stats(
 
 
 MIN_FORM_MATCHES         = 8     # Minimum 8 forma meccs kötelező
-MIN_H2H_MATCHES          = 5     # Min. 5 H2H meccs – ha megvan, szigorítja a szűrőt
-STRONG_THRESHOLD         = 27.5  # Erős tipp küszöb H2H-val (max ~60 pont)
-STRONG_THRESHOLD_NO_H2H  = 9.0   # Erős tipp küszöb H2H nélkül (max ~50 pont: forma+1.szett)
-MIN_H2H_RATE             = 0.70  # H2H győzelem minimum 70% (csak ha van H2H)
-MIN_FIRST_SET_RATE       = 0.70  # 1. szett győzelem minimum 70% (ha van ≥5 adat)
+MIN_H2H_MATCHES          = 5     # Min. 5 H2H meccs – kötelező
+STRONG_THRESHOLD         = 26.5  # Erős tipp küszöb (H2H kötelező, max ~70 pont)
+MIN_H2H_RATE             = 0.65  # H2H győzelmi arány minimum 65%
+MIN_FIRST_SET_RATE       = 0.60  # 1. szett győzelmi arány minimum 60% (ha van ≥5 adat)
 MIN_FORM_DIFF            = 0.20  # Forma különbség minimum 20 százalékpont
 
 
@@ -381,23 +381,28 @@ def calculate_tip(
     """
     Tipp kiszámítása pontozással. Visszaad: (winner, bizalom, score).
 
-    Kötelező:
-    - Min. 10 forma meccs mindkét játékoshoz
-    - Forma különbség ≥ 20 százalékpont a tippelt oldal javára
-    - 1. szett győzelmi arány ≥ 70% (ha van ≥5 adat)
-
-    Opcionális (ha van ≥5 H2H adat):
-    - H2H és forma irányának egyeznie kell
-    - H2H győzelmi arány ≥ 70%
-    - Magasabb score küszöb (27.5 vs 12.0 H2H nélkül)
+    Kötelező feltételek:
+    - Min. 8 forma meccs mindkét játékoshoz
+    - Min. 5 H2H meccs (kötelező)
+    - H2H és forma iránya megegyezik
+    - Pontszám eléri a STRONG_THRESHOLD-ot (26.5)
+    - H2H győzelmi arány ≥ 65%
+    - Forma különbség ≥ 20 százalékpont
+    - 1. szett arány ≥ 60% (ha van ≥5 adat)
     """
     score = 0.0
 
     if home_form_total < MIN_FORM_MATCHES or away_form_total < MIN_FORM_MATCHES:
-        return "uncertain", "🔴 Kevés forma adat (min. 10)", score
+        return "uncertain", "🔴 Kevés forma adat (min. 8)", score
 
-    home_rate  = home_form_wins / home_form_total
-    away_rate  = away_form_wins / away_form_total
+    if h2h_total < MIN_H2H_MATCHES:
+        return "uncertain", "🔴 Kevés H2H adat (min. 5)", score
+
+    home_rate = home_form_wins / home_form_total
+    away_rate = away_form_wins / away_form_total
+    h2h_rate  = h2h_home_wins / h2h_total
+
+    h2h_score  = (h2h_rate - 0.5) * 40
     form_score = (home_rate - away_rate) * 30
 
     home_fs_rate = (home_fs_wins / home_fs_total) if home_fs_total >= 5 else None
@@ -406,43 +411,38 @@ def calculate_tip(
     if home_fs_rate is not None and away_fs_rate is not None:
         first_set_score = (home_fs_rate - away_fs_rate) * 20
 
-    has_h2h   = h2h_total >= MIN_H2H_MATCHES
-    h2h_rate  = (h2h_home_wins / h2h_total) if has_h2h else None
-    h2h_score = ((h2h_rate - 0.5) * 40) if has_h2h else 0.0
-
-    if has_h2h and (h2h_score > 0) != (form_score > 0):
+    if (h2h_score > 0) != (form_score > 0):
         return "uncertain", "🔴 Ellentmondó jelek (H2H vs forma)", score
 
     score = h2h_score + form_score + first_set_score
 
-    threshold = STRONG_THRESHOLD if has_h2h else STRONG_THRESHOLD_NO_H2H
-    if abs(score) < threshold:
+    if abs(score) < STRONG_THRESHOLD:
         return "uncertain", "🔴 Bizonytalan", score
 
-    # Győztes irány meghatározása
     if score > 0:
         winner = "home"
-        w_h2h  = h2h_rate if has_h2h else None
+        w_h2h  = h2h_rate
         w_form = home_rate
         l_form = away_rate
         w_fs   = home_fs_rate
     else:
         winner = "away"
-        w_h2h  = (1.0 - h2h_rate) if has_h2h else None
+        w_h2h  = 1.0 - h2h_rate
         w_form = away_rate
         l_form = home_rate
         w_fs   = away_fs_rate
 
-    # Kemény kapuk a győztes oldalára
-    if has_h2h and w_h2h < MIN_H2H_RATE:
-        return "uncertain", f"🔴 H2H gyenge ({w_h2h*100:.0f}% < 70%)", score
+    if w_h2h < MIN_H2H_RATE:
+        return "uncertain", f"🔴 H2H gyenge ({w_h2h*100:.0f}% < 65%)", score
     if round(w_form - l_form, 6) < MIN_FORM_DIFF:
         return "uncertain", f"🔴 Forma különbség kicsi ({(w_form - l_form)*100:.0f}% < 20%)", score
+    if w_fs is not None and w_fs < MIN_FIRST_SET_RATE:
+        return "uncertain", f"🔴 1. szett gyenge ({w_fs*100:.0f}% < 60%)", score
 
     return winner, "🟢 Erős tipp", score
 
 
-MIN_ODDS = 1.65  # Csak ennél magasabb szorzójú tippeket mutatjuk
+MIN_ODDS = 1.55  # Csak ennél magasabb szorzójú tippeket mutatjuk
 # ─────────────────────────────────────────────
 #  ADATBÁZIS – TIPP ELŐZMÉNYEK
 # ─────────────────────────────────────────────
@@ -689,8 +689,11 @@ def build_tip_message(
         elif winner == "away":
             tip_odds = odds["away"]
 
-    # Szorzó szűrés: csak ha van bookmaker adat
-    if tip_odds is not None and tip_odds < MIN_ODDS:
+    # Ha nincs szorzó, alapértelmezett 1.62 — Setka/Czech mérkőzéseknél általában van odds
+    if tip_odds is None:
+        tip_odds = 1.62
+
+    if tip_odds < MIN_ODDS:
         return None, tip_odds, None
 
     # Tipp meta adat (mentéshez)
@@ -1197,6 +1200,21 @@ async def cmd_tt_statisztika(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ─────────────────────────────────────────────
+#  MULTI-CHAT KÜLDŐ
+# ─────────────────────────────────────────────
+
+
+async def send_to_all_chats(bot, text: str):
+    """Elküldi az üzenetet az összes konfigurált chat ID-ra."""
+    for chat_id in TELEGRAM_CHAT_IDS:
+        try:
+            await bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.error(f"Küldési hiba (chat_id={chat_id}): {e}")
+
+
+# ─────────────────────────────────────────────
 #  AUTOMATIKUS STARTUP TIPPEK
 # ─────────────────────────────────────────────
 
@@ -1240,23 +1258,21 @@ async def send_startup_tips(app):
     upcoming_8h.sort(key=lambda e: e.get("startTimestamp", 0))
 
     if not upcoming_8h:
-        await app.bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text="ℹ️ *Startup tippek:* A következő 8 órában nincs Setka Cup / Czech Liga meccs.",
-            parse_mode=ParseMode.MARKDOWN,
+        await send_to_all_chats(
+            app.bot,
+            "ℹ️ *Startup tippek:* A következő 8 órában nincs Setka Cup / Czech Liga meccs.",
         )
         return
 
     league_names = list({e.get("tournament", {}).get("name", "?") for e in upcoming_8h})
-    await app.bot.send_message(
-        chat_id=TELEGRAM_CHAT_ID,
-        text=(
+    await send_to_all_chats(
+        app.bot,
+        (
             f"🤖 *Bot elindult — Automatikus tippek*\n"
             f"📅 Következő 8 óra tippjei ({len(upcoming_8h)} meccs elemzése)\n"
             f"📍 {', '.join(league_names[:3])}\n"
             f"🔕 _(Csak Erős/Közepes, min. {MIN_ODDS:.2f}+ szorzó)_"
         ),
-        parse_mode=ParseMode.MARKDOWN,
     )
 
     already_sent_ids = {t["event_id"] for t in load_tips()}
@@ -1278,32 +1294,26 @@ async def send_startup_tips(app):
                 if not save_tip_record(tip_meta):
                     logger.info(f"Duplikát kihagyva (startup): event_id={event_id}")
                     continue
-            await app.bot.send_message(
-                chat_id=TELEGRAM_CHAT_ID,
-                text=msg,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            await send_to_all_chats(app.bot, msg)
             sent += 1
         except Exception as e:
             logger.error(f"Startup tipp hiba: {e}")
 
     if sent == 0:
-        await app.bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=(
+        await send_to_all_chats(
+            app.bot,
+            (
                 f"❌ Nincs megfelelő tipp a következő 8 órában.\n"
                 f"_(Minden meccs kiszűrve: bizonytalan statisztika vagy szorzó < {MIN_ODDS:.2f})_"
             ),
-            parse_mode=ParseMode.MARKDOWN,
         )
     else:
-        await app.bot.send_message(
-            chat_id=TELEGRAM_CHAT_ID,
-            text=(
+        await send_to_all_chats(
+            app.bot,
+            (
                 f"✅ *{sent} startup tipp elküldve!*\n"
                 f"⚠️ _Statisztikai elemzésen alapul. Felelősen fogadj!_"
             ),
-            parse_mode=ParseMode.MARKDOWN,
         )
 
     logger.info(f"Startup tippek kész: {sent} tipp elküldve.")
@@ -1373,11 +1383,7 @@ async def check_results_and_notify(context):
 
     for event_id, result, msg in notifications:
         try:
-            await context.bot.send_message(
-                chat_id=TELEGRAM_CHAT_ID,
-                text=msg,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            await send_to_all_chats(context.bot, msg)
             logger.info(f"Eredmény értesítő elküldve: event_id={event_id}, result={result}")
         except Exception as e:
             logger.error(f"Eredmény értesítő hiba: {e}")
@@ -1443,11 +1449,7 @@ async def scan_and_send_tips(context):
                 if not save_tip_record(tip_meta):
                     logger.info(f"Duplikát kihagyva (scan): event_id={tip_meta.get('event_id')}")
                     continue
-            await context.bot.send_message(
-                chat_id=TELEGRAM_CHAT_ID,
-                text=msg,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            await send_to_all_chats(context.bot, msg)
             logger.info(f"Automatikus tipp elküldve: event_id={tip_meta.get('event_id') if tip_meta else '?'}")
         except Exception as e:
             logger.error(f"Automatikus tipp hiba: {e}")
@@ -1620,7 +1622,7 @@ def main():
     else:
         logger.warning("JobQueue nem elérhető – automatikus figyelő kikapcsolva.")
 
-    logger.info("Bot fut. Asztalitenisz: SofaScore API (TT Cup | odds>=1.80 | backtest: +11.2% ROI)")
+    logger.info("Bot fut. Asztalitenisz: SofaScore API (Setka Cup + Czech Liga | H2H kötelező | min. odds 1.55)")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
