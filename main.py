@@ -357,10 +357,10 @@ def sofascore_fetch_player_stats(
         return (0, 0), (0, 0)
 
 
-MIN_FORM_MATCHES         = 10    # Minimum 10 forma meccs kötelező
+MIN_FORM_MATCHES         = 8     # Minimum 8 forma meccs kötelező
 MIN_H2H_MATCHES          = 5     # Min. 5 H2H meccs – ha megvan, szigorítja a szűrőt
 STRONG_THRESHOLD         = 27.5  # Erős tipp küszöb H2H-val (max ~60 pont)
-STRONG_THRESHOLD_NO_H2H  = 12.0  # Erős tipp küszöb H2H nélkül (max ~50 pont: forma+1.szett)
+STRONG_THRESHOLD_NO_H2H  = 9.0   # Erős tipp küszöb H2H nélkül (max ~50 pont: forma+1.szett)
 MIN_H2H_RATE             = 0.70  # H2H győzelem minimum 70% (csak ha van H2H)
 MIN_FIRST_SET_RATE       = 0.70  # 1. szett győzelem minimum 70% (ha van ≥5 adat)
 MIN_FORM_DIFF            = 0.20  # Forma különbség minimum 20 százalékpont
@@ -436,10 +436,8 @@ def calculate_tip(
     # Kemény kapuk a győztes oldalára
     if has_h2h and w_h2h < MIN_H2H_RATE:
         return "uncertain", f"🔴 H2H gyenge ({w_h2h*100:.0f}% < 70%)", score
-    if w_form - l_form < MIN_FORM_DIFF:
+    if round(w_form - l_form, 6) < MIN_FORM_DIFF:
         return "uncertain", f"🔴 Forma különbség kicsi ({(w_form - l_form)*100:.0f}% < 20%)", score
-    if w_fs is not None and w_fs < MIN_FIRST_SET_RATE:
-        return "uncertain", f"🔴 1. szett gyenge ({w_fs*100:.0f}% < 70%)", score
 
     return winner, "🟢 Erős tipp", score
 
@@ -691,12 +689,8 @@ def build_tip_message(
         elif winner == "away":
             tip_odds = odds["away"]
 
-    # Ha nincs szorzó, alapértelmezett 1.62-t használunk
-    if tip_odds is None:
-        tip_odds = 1.62
-
-    # Szorzó szűrés: minimum alatt kiesik
-    if tip_odds < MIN_ODDS:
+    # Szorzó szűrés: csak ha van bookmaker adat
+    if tip_odds is not None and tip_odds < MIN_ODDS:
         return None, tip_odds, None
 
     # Tipp meta adat (mentéshez)
