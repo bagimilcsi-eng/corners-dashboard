@@ -33,6 +33,9 @@ CORNERS_BOT_TOKEN = os.environ["CORNERS_BOT_TOKEN"]
 CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
 DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
+# Csoportok ahol a tippek és eredmények megjelennek
+GROUP_CHAT_IDS = [-1003715006026, -1003835559510]
+
 import os as _os
 SOFASCORE_BASE = (
     "https://www.sofascore.com/api/v1"
@@ -564,6 +567,17 @@ def _sync_collect_results() -> list:
     return results
 
 
+async def _send_to_all(bot: Bot, msg: str):
+    """Tipp/eredmény: admin csatorna + mindkét csoport."""
+    for chat_id in [CORNERS_CHAT_ID] + GROUP_CHAT_IDS:
+        if not chat_id:
+            continue
+        try:
+            await bot.send_message(chat_id=chat_id, text=msg, parse_mode=ParseMode.MARKDOWN)
+        except Exception as e:
+            logger.error(f"Küldési hiba ({chat_id}): {e}")
+
+
 async def scan_and_send(bot: Bot):
     if not CORNERS_CHAT_ID:
         logger.warning("CORNERS_CHAT_ID nincs beállítva, kihagyva")
@@ -573,16 +587,9 @@ async def scan_and_send(bot: Bot):
     sent = 0
     for tip in tips:
         msg = format_tip_msg(tip)
-        try:
-            await bot.send_message(
-                chat_id=CORNERS_CHAT_ID,
-                text=msg,
-                parse_mode=ParseMode.MARKDOWN,
-            )
-            logger.info(f"Szöglet tipp elküldve: {tip['home']} vs {tip['away']}, várható: {tip['expected_corners']}, tipp: {tip['tip']}")
-            sent += 1
-        except Exception as e:
-            logger.error(f"Tipp küldési hiba: {e}")
+        await _send_to_all(bot, msg)
+        logger.info(f"Szöglet tipp elküldve: {tip['home']} vs {tip['away']}, várható: {tip['expected_corners']}, tipp: {tip['tip']}")
+        sent += 1
     logger.info(f"Szöglet scan kész, {sent} új tipp elküldve")
 
 
@@ -592,14 +599,7 @@ async def check_results(bot: Bot):
         return
     for t, actual, result in results:
         msg = format_result_msg(t, actual, result)
-        try:
-            await bot.send_message(
-                chat_id=CORNERS_CHAT_ID,
-                text=msg,
-                parse_mode=ParseMode.MARKDOWN,
-            )
-        except Exception as e:
-            logger.error(f"Eredmény értesítő hiba: {e}")
+        await _send_to_all(bot, msg)
 
 
 # ─────────────────────────────────────────────
