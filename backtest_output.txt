@@ -2,3 +2,5 @@
         Szűrők: forma≥8, H2H≥5, score≥26.5, H2H%≥65, forma_diff≥20pp, odds≥1.55
         API delay: 0.22s
 
+   2025-10-13 | tippek: 9 (5W/4L) | ma: 9
+   2025-10-14 | tippek: 12 (7W/5L) | ma: 3
