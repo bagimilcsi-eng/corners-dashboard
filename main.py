@@ -444,7 +444,7 @@ def calculate_tip(
     return winner, "🟢 Erős tipp", score
 
 
-MIN_ODDS = 1.80  # Csak ennél magasabb szorzójú tippeket mutatjuk
+MIN_ODDS = 1.65  # Csak ennél magasabb szorzójú tippeket mutatjuk
 # ─────────────────────────────────────────────
 #  ADATBÁZIS – TIPP ELŐZMÉNYEK
 # ─────────────────────────────────────────────
