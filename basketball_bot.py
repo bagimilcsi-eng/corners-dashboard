@@ -646,12 +646,11 @@ def analyze_event(event: dict, sent_ids: set) -> dict | None:
         expected, line, direction, prob, odds, h2h_avg, n_bookmakers
     )
 
-    # Konfidencia küszöb: H2H nélkül szigorúbb (MIN_CONF_NO_H2H), egyébként normál
+    # Konfidencia küszöb:
+    # H2H nélkül max score = 85 (nincs +15 H2H bónusz) → MIN_CONF_NO_H2H=70 mindkét irányban
+    # H2H-val: OVER→82, UNDER→86 (backtest alapú szigorítás)
     if h2h_avg is None:
-        min_conf_required = max(
-            MIN_CONF_NO_H2H,
-            UNDER_MIN_CONFIDENCE if direction == "under" else MIN_CONFIDENCE
-        )
+        min_conf_required = MIN_CONF_NO_H2H
     else:
         min_conf_required = UNDER_MIN_CONFIDENCE if direction == "under" else MIN_CONFIDENCE
     if confidence < min_conf_required:
