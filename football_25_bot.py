@@ -550,7 +550,7 @@ async def scan_and_send(context):
             if not save_tip(meta):
                 logger.info(f"Duplikát kihagyva: fixture_id={meta['fixture_id']}")
                 continue
-            await send_to_all_chats(context.bot, msg)
+            await send_admin(context.bot, msg)
             logger.info(f"Tipp elküldve: {meta['home']} vs {meta['away']} | {meta['tip'].upper()} 2.5 @ {meta['odds']}")
         except Exception as e:
             logger.error(f"Tipp küldési hiba: {e}")
@@ -606,7 +606,7 @@ async def check_results(context):
     notifs = await asyncio.to_thread(_check_results_sync)
     for msg in notifs:
         try:
-            await send_to_all_chats(context.bot, msg)
+            await send_admin(context.bot, msg)
         except Exception as e:
             logger.error(f"Eredmény értesítő hiba: {e}")
 
@@ -710,7 +710,7 @@ def main():
         for msg, meta in tips:
             if not save_tip(meta):
                 continue
-            await send_to_all_chats(application.bot, msg)
+            await send_admin(application.bot, msg)
             logger.info(f"Startup tipp: {meta['home']} vs {meta['away']}")
         if not tips:
             await send_admin(application.bot, "ℹ️ Startup: nincs megfelelő tipp a következő 12 órában.")
