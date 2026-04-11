@@ -2,10 +2,12 @@
 """
 Football 2.5 Over/Under Bot
 - API-Football (RapidAPI) adatforrás
-- H2H: utolsó 5 meccs; hazai csapat utolsó 10 hazai; vendég utolsó 10 vendég meccs
+- H2H: utolsó 7 meccs; hazai csapat utolsó 10 hazai; vendég utolsó 10 vendég meccs
 - Félidei szűrő: HT gól ráta alapján
+- Konszenzus szűrő: min. 2 forrásnak azonos irányt kell mutatnia
+- Liga whitelist: csak megbízható, adatgazdag ligák
 - Min. szorzó: 1.55 | Min. könyvjelző: 3 fogadóiroda
-- Token: COUPON_BOT_TOKEN | Chat: COUPON_CHAT_ID + csoportok
+- Token: COUPON_BOT_TOKEN | Chat: COUPON_CHAT_ID
 """
 from __future__ import annotations
 
@@ -65,16 +67,54 @@ CHAT_IDS = [6617439213, -1003802326194, -1003835559510]
 # Szűrő paraméterek
 MIN_ODDS         = 1.55
 MIN_BOOKMAKERS   = 3      # min. fogadóiroda az O/U 2.5 piacra
-MIN_H2H_MATCHES  = 3      # minimum H2H meccs
+MIN_H2H_MATCHES  = 7      # minimum H2H meccs (megbízható statisztikához)
 MIN_FORM_MATCHES = 5      # minimum forma meccs (hazai/vendég)
 OVER_THRESHOLD   = 0.62   # combined over ráta → OVER tipp
 UNDER_THRESHOLD  = 0.38   # combined over ráta → UNDER tipp
 HT_OVER_MIN      = 0.35   # ha HT gól ráta < 35% → ne adj over tippet
 HT_UNDER_MAX     = 0.58   # ha HT gól ráta > 58% → ne adj under tippet
+CONSENSUS_MIN    = 2      # min. ennyi forrásnak kell azonos irányt mutatnia
+CONSENSUS_THRESH = 0.55   # forrás "OVER irányú" ha over_rate >= ez az érték
 SCAN_INTERVAL    = 1800   # 30 perc
 RESULT_CHECK_MIN = 105    # meccs után ennyi perccel ellenőrzünk eredményt
 API_DELAY        = 0.45   # másodperc API hívások között
 HORIZON_HOURS    = 12     # ennyi órán belüli meccsekre tippelünk
+
+# Liga whitelist — csak megbízható, adatgazdag bajnokságok
+ALLOWED_LEAGUE_IDS: set[int] = {
+    2,    # Champions League
+    3,    # Europa League
+    848,  # Conference League
+    39,   # Premier League
+    40,   # Championship
+    41,   # League One
+    135,  # Serie A
+    136,  # Serie B
+    78,   # Bundesliga
+    79,   # 2. Bundesliga
+    61,   # Ligue 1
+    62,   # Ligue 2
+    140,  # La Liga
+    141,  # La Liga 2
+    88,   # Eredivisie
+    94,   # Primeira Liga
+    144,  # Belgian Pro League
+    179,  # Scottish Premiership
+    203,  # Süper Lig
+    197,  # Super League Greece
+    218,  # Austrian Bundesliga
+    235,  # Russian Premier League
+    307,  # Saudi Pro League
+    253,  # MLS
+    71,   # Brasileirão Série A
+    72,   # Brasileirão Série B
+    128,  # Argentine Liga Profesional
+    130,  # Argentine Primera Nacional
+    383,  # Swiss Super League
+    113,  # Allsvenskan
+    119,  # Danish Superliga
+    103,  # Eliteserien
+}
 
 # Aktuális szezon
 _now = datetime.utcnow()
@@ -206,14 +246,14 @@ def fetch_upcoming_fixtures() -> list:
 
 
 def fetch_h2h(h2h_key: str) -> list:
-    """H2H: utolsó 5 meccs (befejezett)."""
-    data = api_get("fixtures/headtohead", {"h2h": h2h_key, "last": 10, "status": "FT"})
+    """H2H: utolsó 7 meccs (befejezett)."""
+    data = api_get("fixtures/headtohead", {"h2h": h2h_key, "last": 14, "status": "FT"})
     matches = data.get("response", [])
     finished = [
         m for m in matches
         if m.get("fixture", {}).get("status", {}).get("short") in ("FT", "AET", "PEN")
     ]
-    return finished[:5]
+    return finished[:7]
 
 
 def fetch_team_form(team_id: int, venue: str, last: int = 10) -> list:
@@ -371,6 +411,16 @@ def calculate_tip(h2h_stats: dict, home_stats: dict, away_stats: dict, odds: dic
     else:
         return None
 
+    # Konszenzus szűrő: min. 2 forrásnak azonos irányt kell mutatnia
+    all_rates = {"h2h": h2h_rate, "home": home_rate, "away": away_rate}
+    available = {k: v for k, v in all_rates.items() if v is not None}
+    if tip == "over":
+        agreeing = sum(1 for v in available.values() if v >= CONSENSUS_THRESH)
+    else:
+        agreeing = sum(1 for v in available.values() if v <= (1 - CONSENSUS_THRESH))
+    if agreeing < CONSENSUS_MIN:
+        return None
+
     # Szorzó szűrő
     if tip_odds < MIN_ODDS:
         return None
@@ -473,9 +523,15 @@ def _collect_tips_sync(sent_ids: set) -> list:
         home_nm  = teams.get("home", {}).get("name", "?")
         away_nm  = teams.get("away", {}).get("name", "?")
         league   = fx.get("league", {})
+        league_id = league.get("id")
         ts       = fixture_data.get("timestamp", 0)
 
         if not home_id or not away_id:
+            continue
+
+        # Liga whitelist ellenőrzés
+        if league_id not in ALLOWED_LEAGUE_IDS:
+            logger.debug(f"{home_nm} vs {away_nm} — liga kizárva (id={league_id}), kihagyva")
             continue
 
         h2h_key = f"{home_id}-{away_id}"
