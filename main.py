@@ -1258,21 +1258,24 @@ async def send_startup_tips(app):
     upcoming_8h.sort(key=lambda e: e.get("startTimestamp", 0))
 
     if not upcoming_8h:
-        await send_to_all_chats(
-            app.bot,
-            "ℹ️ *Startup tippek:* A következő 8 órában nincs Setka Cup / Czech Liga meccs.",
+        await app.bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text="ℹ️ *Startup tippek:* A következő 8 órában nincs Setka Cup / Czech Liga meccs.",
+            parse_mode=ParseMode.MARKDOWN,
         )
         return
 
     league_names = list({e.get("tournament", {}).get("name", "?") for e in upcoming_8h})
-    await send_to_all_chats(
-        app.bot,
-        (
+    # Státusz üzenet csak a bot saját csatornájára
+    await app.bot.send_message(
+        chat_id=TELEGRAM_CHAT_ID,
+        text=(
             f"🤖 *Bot elindult — Automatikus tippek*\n"
             f"📅 Következő 8 óra tippjei ({len(upcoming_8h)} meccs elemzése)\n"
             f"📍 {', '.join(league_names[:3])}\n"
             f"🔕 _(Csak Erős/Közepes, min. {MIN_ODDS:.2f}+ szorzó)_"
         ),
+        parse_mode=ParseMode.MARKDOWN,
     )
 
     already_sent_ids = {t["event_id"] for t in load_tips()}
@@ -1294,26 +1297,31 @@ async def send_startup_tips(app):
                 if not save_tip_record(tip_meta):
                     logger.info(f"Duplikát kihagyva (startup): event_id={event_id}")
                     continue
+            # Tipp üzenet minden csoportba megy
             await send_to_all_chats(app.bot, msg)
             sent += 1
         except Exception as e:
             logger.error(f"Startup tipp hiba: {e}")
 
     if sent == 0:
-        await send_to_all_chats(
-            app.bot,
-            (
+        # Státusz csak a bot saját csatornájára
+        await app.bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=(
                 f"❌ Nincs megfelelő tipp a következő 8 órában.\n"
                 f"_(Minden meccs kiszűrve: bizonytalan statisztika vagy szorzó < {MIN_ODDS:.2f})_"
             ),
+            parse_mode=ParseMode.MARKDOWN,
         )
     else:
-        await send_to_all_chats(
-            app.bot,
-            (
+        # Összefoglaló csak a bot saját csatornájára
+        await app.bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=(
                 f"✅ *{sent} startup tipp elküldve!*\n"
                 f"⚠️ _Statisztikai elemzésen alapul. Felelősen fogadj!_"
             ),
+            parse_mode=ParseMode.MARKDOWN,
         )
 
     logger.info(f"Startup tippek kész: {sent} tipp elküldve.")
