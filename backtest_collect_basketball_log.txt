@@ -1,0 +1,4 @@
+[BASKETBALL COLLECT] 2025-10-13 → 2026-04-10
+  MIN_MATCHES: 6 | Output: backtest_raw_basketball.json
+  API delay: 0.4s
+

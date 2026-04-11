@@ -1,0 +1,40 @@
+[FOOTBALL25 COLLECT] 2025-10-13 → 2026-04-10
+  Liga whitelist: 32 liga | Output: backtest_raw_football25.json
+  API delay: 0.5s
+
+  [WARN] HTTP 403 — fixtures
+   2025-10-13 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-14 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-15 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-16 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-17 | meccsek: 0 | össz: 0
+  [WARN] HTTP 403 — fixtures
+   2025-10-18 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-19 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-20 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-21 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-22 | meccsek: 0 | össz: 0
+  [WARN] HTTP 403 — fixtures
+   2025-10-23 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-24 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-25 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-26 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-27 | meccsek: 0 | össz: 0
+  [WARN] HTTP 403 — fixtures
+   2025-10-28 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-29 | meccsek: 0 | össz: 0
+  [WARN] HTTP 429 — fixtures
+   2025-10-30 | meccsek: 0 | össz: 0

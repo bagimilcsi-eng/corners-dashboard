@@ -127,6 +127,14 @@ args = "Football 25 Bot"
 task = "workflow.run"
 args = "Backtest Collector"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backtest Football25"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backtest Basketball"
+
 [[workflows.workflow]]
 name = "Basketball Bot"
 author = "agent"
@@ -167,6 +175,28 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python backtest_collect.py > backtest_collect_log.txt 2>&1"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Backtest Football25"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python backtest_collect_football25.py > backtest_collect_football25_log.txt 2>&1"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Backtest Basketball"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python backtest_collect_basketball.py > backtest_collect_basketball_log.txt 2>&1"
 
 [workflows.workflow.metadata]
 outputType = "console"

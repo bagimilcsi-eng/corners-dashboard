@@ -41,3 +41,6 @@
    2025-11-19 | összegyűjtve ma: 320 | össz: 9663
    2025-11-20 | összegyűjtve ma: 312 | össz: 9975
    2025-11-21 | összegyűjtve ma: 306 | össz: 10281
+   2025-11-22 | összegyűjtve ma: 266 | össz: 10547
+   2025-11-23 | összegyűjtve ma: 273 | össz: 10820
+   2025-11-24 | összegyűjtve ma: 286 | össz: 11106
