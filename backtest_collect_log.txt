@@ -1,0 +1,4 @@
+[COLLECT] 2025-10-13 → 2026-04-10
+          MIN_FORM≥6, MIN_H2H≥3 | kimenet: backtest_raw.json
+          Becsült idő: ~98 perc
+

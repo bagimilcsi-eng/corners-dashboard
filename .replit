@@ -123,6 +123,10 @@ args = "Multi Sport Bot"
 task = "workflow.run"
 args = "Football 25 Bot"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Backtest Collector"
+
 [[workflows.workflow]]
 name = "Basketball Bot"
 author = "agent"
@@ -152,6 +156,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "bash -c 'while true; do python football_25_bot.py; echo \"Football 25 Bot leállt, újraindítás 5 mp múlva...\"; sleep 5; done'"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Backtest Collector"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python backtest_collect.py > backtest_collect_log.txt 2>&1"
 
 [workflows.workflow.metadata]
 outputType = "console"
