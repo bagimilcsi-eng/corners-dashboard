@@ -2,3 +2,38 @@
           MIN_FORM≥6, MIN_H2H≥3 | kimenet: backtest_raw.json
           Becsült idő: ~98 perc
 
+   2025-10-13 | összegyűjtve ma: 244 | össz: 244
+   2025-10-14 | összegyűjtve ma: 270 | össz: 514
+   2025-10-15 | összegyűjtve ma: 291 | össz: 805
+   2025-10-16 | összegyűjtve ma: 272 | össz: 1077
+   2025-10-17 | összegyűjtve ma: 249 | össz: 1326
+   2025-10-18 | összegyűjtve ma: 230 | össz: 1556
+   2025-10-19 | összegyűjtve ma: 228 | össz: 1784
+   2025-10-20 | összegyűjtve ma: 224 | össz: 2008
+   2025-10-21 | összegyűjtve ma: 237 | össz: 2245
+   2025-10-22 | összegyűjtve ma: 265 | össz: 2510
+   2025-10-23 | összegyűjtve ma: 271 | össz: 2781
+   2025-10-24 | összegyűjtve ma: 257 | össz: 3038
+   2025-10-25 | összegyűjtve ma: 222 | össz: 3260
+   2025-10-26 | összegyűjtve ma: 210 | össz: 3470
+   2025-10-27 | összegyűjtve ma: 221 | össz: 3691
+   2025-10-28 | összegyűjtve ma: 247 | össz: 3938
+   2025-10-29 | összegyűjtve ma: 240 | össz: 4178
+   2025-10-30 | összegyűjtve ma: 239 | össz: 4417
+   2025-11-01 | összegyűjtve ma: 217 | össz: 4634
+   2025-11-02 | összegyűjtve ma: 198 | össz: 4832
+   2025-11-03 | összegyűjtve ma: 228 | össz: 5060
+   2025-11-04 | összegyűjtve ma: 288 | össz: 5348
+   2025-11-05 | összegyűjtve ma: 313 | össz: 5661
+   2025-11-06 | összegyűjtve ma: 304 | össz: 5965
+   2025-11-07 | összegyűjtve ma: 288 | össz: 6253
+   2025-11-08 | összegyűjtve ma: 250 | össz: 6503
+   2025-11-09 | összegyűjtve ma: 254 | össz: 6757
+   2025-11-10 | összegyűjtve ma: 275 | össz: 7032
+   2025-11-11 | összegyűjtve ma: 299 | össz: 7331
+   2025-11-12 | összegyűjtve ma: 295 | össz: 7626
+   2025-11-13 | összegyűjtve ma: 301 | össz: 7927
+   2025-11-14 | összegyűjtve ma: 297 | össz: 8224
+   2025-11-15 | összegyűjtve ma: 257 | össz: 8481
+   2025-11-16 | összegyűjtve ma: 249 | össz: 8730
+   2025-11-17 | összegyűjtve ma: 297 | össz: 9027
