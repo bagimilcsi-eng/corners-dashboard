@@ -188,11 +188,11 @@ def fractional_to_decimal(frac: str) -> float | None:
 
 def is_allowed(event: dict) -> bool:
     """Csak TT Cup meccsek (backtest alapján legjobb ROI: ~+17%, 58%+ WR, odds>=1.80).
-    A SofaScore-ban a 'TT Cup' a KATEGÓRIA neve — alatta 'Setka Cup', 'Czech Liga Pro' stb.
-    versenyek szerepelnek. Ezért a category.name-t kell ellenőrizni."""
+    A SofaScore-ban: category.name='Czech Republic', tournament.name='TT Cup'.
+    A tournament.name-t kell ellenőrizni."""
     t = event.get("tournament", {})
-    cat_name = t.get("category", {}).get("name", "").lower()
-    return any(kw in cat_name for kw in ALLOWED_KEYWORDS)
+    text = t.get("name", "").lower()
+    return any(kw in text for kw in ALLOWED_KEYWORDS)
 
 
 def get_status_hu(event: dict) -> str:
@@ -357,12 +357,13 @@ def sofascore_fetch_player_stats(
         return (0, 0), (0, 0)
 
 
-MIN_FORM_MATCHES    = 10    # Minimum 10 forma meccs kötelező
-MIN_H2H_MATCHES     = 5    # Minimum 5 H2H meccs kötelező
-STRONG_THRESHOLD    = 27.5  # Erős tipp küszöb
-MIN_H2H_RATE        = 0.70  # H2H győzelem minimum 70%
-MIN_FIRST_SET_RATE  = 0.70  # 1. szett győzelem minimum 70% (ha van elég adat)
-MIN_FORM_DIFF       = 0.20  # Forma különbség minimum 20 százalékpont
+MIN_FORM_MATCHES         = 10    # Minimum 10 forma meccs kötelező
+MIN_H2H_MATCHES          = 5     # Min. 5 H2H meccs – ha megvan, szigorítja a szűrőt
+STRONG_THRESHOLD         = 27.5  # Erős tipp küszöb H2H-val (max ~60 pont)
+STRONG_THRESHOLD_NO_H2H  = 12.0  # Erős tipp küszöb H2H nélkül (max ~50 pont: forma+1.szett)
+MIN_H2H_RATE             = 0.70  # H2H győzelem minimum 70% (csak ha van H2H)
+MIN_FIRST_SET_RATE       = 0.70  # 1. szett győzelem minimum 70% (ha van ≥5 adat)
+MIN_FORM_DIFF            = 0.20  # Forma különbség minimum 20 százalékpont
 
 
 def calculate_tip(
@@ -380,27 +381,23 @@ def calculate_tip(
     """
     Tipp kiszámítása pontozással. Visszaad: (winner, bizalom, score).
 
-    Kemény feltételek:
+    Kötelező:
     - Min. 10 forma meccs mindkét játékoshoz
-    - Min. 5 H2H meccs kötelező
+    - Forma különbség ≥ 20 százalékpont a tippelt oldal javára
+    - 1. szett győzelmi arány ≥ 70% (ha van ≥5 adat)
+
+    Opcionális (ha van ≥5 H2H adat):
     - H2H és forma irányának egyeznie kell
     - H2H győzelmi arány ≥ 70%
-    - Forma különbség ≥ 20 százalékpont
-    - 1. szett győzelmi arány ≥ 70% (ha van ≥5 adat)
+    - Magasabb score küszöb (27.5 vs 12.0 H2H nélkül)
     """
     score = 0.0
 
     if home_form_total < MIN_FORM_MATCHES or away_form_total < MIN_FORM_MATCHES:
         return "uncertain", "🔴 Kevés forma adat (min. 10)", score
 
-    if h2h_total < MIN_H2H_MATCHES:
-        return "uncertain", "🔴 Kevés H2H adat (min. 5)", score
-
-    home_rate = home_form_wins / home_form_total
-    away_rate = away_form_wins / away_form_total
-    h2h_rate  = h2h_home_wins / h2h_total
-
-    h2h_score  = (h2h_rate - 0.5) * 40
+    home_rate  = home_form_wins / home_form_total
+    away_rate  = away_form_wins / away_form_total
     form_score = (home_rate - away_rate) * 30
 
     home_fs_rate = (home_fs_wins / home_fs_total) if home_fs_total >= 5 else None
@@ -409,30 +406,35 @@ def calculate_tip(
     if home_fs_rate is not None and away_fs_rate is not None:
         first_set_score = (home_fs_rate - away_fs_rate) * 20
 
-    if (h2h_score > 0) != (form_score > 0):
+    has_h2h   = h2h_total >= MIN_H2H_MATCHES
+    h2h_rate  = (h2h_home_wins / h2h_total) if has_h2h else None
+    h2h_score = ((h2h_rate - 0.5) * 40) if has_h2h else 0.0
+
+    if has_h2h and (h2h_score > 0) != (form_score > 0):
         return "uncertain", "🔴 Ellentmondó jelek (H2H vs forma)", score
 
     score = h2h_score + form_score + first_set_score
 
-    if abs(score) < STRONG_THRESHOLD:
+    threshold = STRONG_THRESHOLD if has_h2h else STRONG_THRESHOLD_NO_H2H
+    if abs(score) < threshold:
         return "uncertain", "🔴 Bizonytalan", score
 
     # Győztes irány meghatározása
     if score > 0:
-        winner  = "home"
-        w_h2h   = h2h_rate
-        w_form  = home_rate
-        l_form  = away_rate
-        w_fs    = home_fs_rate
+        winner = "home"
+        w_h2h  = h2h_rate if has_h2h else None
+        w_form = home_rate
+        l_form = away_rate
+        w_fs   = home_fs_rate
     else:
-        winner  = "away"
-        w_h2h   = 1.0 - h2h_rate
-        w_form  = away_rate
-        l_form  = home_rate
-        w_fs    = away_fs_rate
+        winner = "away"
+        w_h2h  = (1.0 - h2h_rate) if has_h2h else None
+        w_form = away_rate
+        l_form = home_rate
+        w_fs   = away_fs_rate
 
     # Kemény kapuk a győztes oldalára
-    if w_h2h < MIN_H2H_RATE:
+    if has_h2h and w_h2h < MIN_H2H_RATE:
         return "uncertain", f"🔴 H2H gyenge ({w_h2h*100:.0f}% < 70%)", score
     if w_form - l_form < MIN_FORM_DIFF:
         return "uncertain", f"🔴 Forma különbség kicsi ({(w_form - l_form)*100:.0f}% < 20%)", score
