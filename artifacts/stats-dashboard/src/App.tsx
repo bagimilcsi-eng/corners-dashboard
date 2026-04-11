@@ -5,7 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/Dashboard";
 import CornersDashboard from "@/pages/CornersDashboard";
-import CouponDashboard from "@/pages/CouponDashboard";
+import Football25Dashboard from "@/pages/Football25Dashboard";
 import BasketballDashboard from "@/pages/BasketballDashboard";
 import MultiSportDashboard from "@/pages/MultiSportDashboard";
 
@@ -23,7 +23,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Dashboard} />
       <Route path="/corners" component={CornersDashboard} />
-      <Route path="/coupons" component={CouponDashboard} />
+      <Route path="/football25" component={Football25Dashboard} />
       <Route path="/basketball" component={BasketballDashboard} />
       <Route path="/multi-sport" component={MultiSportDashboard} />
       <Route component={NotFound} />

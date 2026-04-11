@@ -1,49 +1,38 @@
 import { useState } from "react";
-import { useCornerTips, type CornerTip } from "@/hooks/use-corner-tips";
+import { useFootball25Tips, type Football25Tip } from "@/hooks/use-football25-tips";
 import { format } from "date-fns";
 import { hu } from "date-fns/locale";
 import {
-  Trophy,
-  TrendingUp,
-  Target,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  RefreshCcw,
-  BarChart3,
-  Activity,
-  ArrowUp,
-  ArrowDown,
+  Trophy, TrendingUp, Target, Clock, CheckCircle2, XCircle,
+  RefreshCcw, BarChart3, Activity, ArrowUp, ArrowDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MonthPicker, buildMonthKeys, isInMonth, type MonthKey } from "@/components/ui/month-picker";
 import { cn, formatPercentage, formatROI } from "@/lib/utils";
 
-function getStrength(expected: number): { label: string; color: string; dots: number } {
-  const margin = Math.abs(expected - 9.5);
-  if (margin >= 2.5) return { label: "Nagyon erős", color: "text-red-400", dots: 3 };
-  if (margin >= 1.5) return { label: "Erős", color: "text-orange-400", dots: 2 };
-  return { label: "Mérsékelt", color: "text-yellow-400", dots: 1 };
-}
-
-function TipCard({ tip }: { tip: CornerTip }) {
-  const dt = format(new Date(tip.start_timestamp * 1000), "MMM d. HH:mm", { locale: hu });
+function TipCard({ tip }: { tip: Football25Tip }) {
+  const dt     = format(new Date(tip.start_timestamp * 1000), "MMM d. HH:mm", { locale: hu });
   const isOver = tip.tip === "over";
-  const strength = getStrength(Number(tip.expected_corners));
+
+  const h2h  = tip.h2h_over_rate  != null ? `${Math.round(tip.h2h_over_rate  * 100)}%` : "–";
+  const home = tip.home_over_rate != null ? `${Math.round(tip.home_over_rate * 100)}%` : "–";
+  const away = tip.away_over_rate != null ? `${Math.round(tip.away_over_rate * 100)}%` : "–";
+  const ht   = tip.ht_goal_rate   != null ? `${Math.round(tip.ht_goal_rate   * 100)}%` : "–";
+  const combined = tip.combined_score != null
+    ? Math.round((isOver ? tip.combined_score : 1 - tip.combined_score) * 100)
+    : null;
 
   return (
     <Card className="glass-card hover:-translate-y-0.5 transition-transform duration-300">
       <CardContent className="p-5">
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">🏆 {tip.league}</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs text-muted-foreground">⚽ {tip.league}</span>
+            {tip.country && <span className="text-xs text-muted-foreground/60">· {tip.country}</span>}
             <span className="text-xs text-muted-foreground">· {dt}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={cn("font-bold text-sm flex items-center gap-1", strength.color)}>
-              {"⚡".repeat(strength.dots)} {strength.label}
-            </span>
             {tip.result === "win" ? (
               <Badge variant="success" className="shadow-sm shadow-success/20">✅ Nyert</Badge>
             ) : tip.result === "loss" ? (
@@ -54,34 +43,42 @@ function TipCard({ tip }: { tip: CornerTip }) {
           </div>
         </div>
 
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-semibold text-foreground">{tip.home} <span className="text-muted-foreground font-normal">vs</span> {tip.away}</p>
-            <div className="flex items-center gap-4 mt-1 text-sm flex-wrap">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-foreground truncate">
+              {tip.home} <span className="text-muted-foreground font-normal">vs</span> {tip.away}
+            </p>
+            <div className="flex items-center gap-3 mt-1 text-sm flex-wrap">
               <span className={cn("font-bold flex items-center gap-1", isOver ? "text-blue-400" : "text-purple-400")}>
                 {isOver ? <ArrowUp className="w-4 h-4" /> : <ArrowDown className="w-4 h-4" />}
-                {isOver ? "OVER" : "UNDER"} {tip.line}
+                {isOver ? "OVER" : "UNDER"} {tip.line ?? 2.5}
               </span>
               {tip.odds != null && (
-                <span className="font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded-md text-sm">
+                <span className="font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded-md">
                   @{Number(tip.odds).toFixed(2)}
                 </span>
               )}
-              <span className="text-muted-foreground">
-                Várható: <span className="text-foreground font-medium">{Number(tip.expected_corners).toFixed(1)}</span> szöglet
-              </span>
-              {tip.home_avg != null && tip.away_avg != null && (
-                <span className="text-muted-foreground text-xs">
-                  ({tip.home_avg.toFixed(1)} / {tip.away_avg.toFixed(1)})
+              {tip.bookmaker_count != null && (
+                <span className="text-xs text-muted-foreground">{tip.bookmaker_count} iroda</span>
+              )}
+              {combined != null && (
+                <span className="text-xs text-muted-foreground">
+                  Jel: <span className="text-foreground font-medium">{combined}%</span>
                 </span>
               )}
             </div>
+            <div className="mt-2 flex gap-4 text-xs text-muted-foreground flex-wrap">
+              <span>H2H: <span className="text-foreground font-medium">{h2h}</span></span>
+              <span>Hazai: <span className="text-foreground font-medium">{home}</span></span>
+              <span>Vendég: <span className="text-foreground font-medium">{away}</span></span>
+              <span>HT gól: <span className="text-foreground font-medium">{ht}</span></span>
+            </div>
           </div>
           <div className="text-right shrink-0">
-            {tip.result != null && tip.actual_corners != null && (
+            {tip.result != null && tip.actual_goals != null && (
               <div className="text-sm">
-                <p className="text-xs text-muted-foreground">Valós szöglet</p>
-                <p className="font-bold text-lg text-foreground">{tip.actual_corners}</p>
+                <p className="text-xs text-muted-foreground">Gólok</p>
+                <p className="font-bold text-lg text-foreground">{tip.actual_goals}</p>
               </div>
             )}
           </div>
@@ -91,17 +88,18 @@ function TipCard({ tip }: { tip: CornerTip }) {
   );
 }
 
-function LeagueBreakdown({ tips }: { tips: CornerTip[] }) {
+function LeagueBreakdown({ tips }: { tips: Football25Tip[] }) {
   const map: Record<string, { wins: number; total: number; pending: number }> = {};
-
   for (const t of tips) {
-    if (!map[t.league]) map[t.league] = { wins: 0, total: 0, pending: 0 };
-    if (t.result === "win") map[t.league].wins++;
-    if (t.result != null) map[t.league].total++;
-    else map[t.league].pending++;
+    const key = t.league;
+    if (!map[key]) map[key] = { wins: 0, total: 0, pending: 0 };
+    if (t.result === "win")  map[key].wins++;
+    if (t.result != null)    map[key].total++;
+    else                     map[key].pending++;
   }
-
-  const entries = Object.entries(map).sort((a, b) => (b[1].total + b[1].pending) - (a[1].total + a[1].pending));
+  const entries = Object.entries(map).sort(
+    (a, b) => (b[1].total + b[1].pending) - (a[1].total + a[1].pending)
+  );
   if (entries.length === 0) return null;
 
   return (
@@ -148,23 +146,22 @@ function LeagueBreakdown({ tips }: { tips: CornerTip[] }) {
   );
 }
 
-export default function CornersDashboard() {
-  const { data: allTips = [], isLoading, error, refetch, isFetching } = useCornerTips();
+export default function Football25Dashboard() {
+  const { data: allTips = [], isLoading, error, refetch, isFetching } = useFootball25Tips();
   const [selectedMonth, setSelectedMonth] = useState<MonthKey>("all");
 
-  const months = buildMonthKeys(allTips.map((t) => t.start_timestamp));
-  const tips = allTips.filter((t) => isInMonth(t.start_timestamp, selectedMonth));
+  const months   = buildMonthKeys(allTips.map((t) => t.start_timestamp));
+  const tips     = allTips.filter((t) => isInMonth(t.start_timestamp, selectedMonth));
+  const settled  = tips.filter((t) => t.result != null);
+  const pending  = tips.filter((t) => t.result == null);
+  const wins     = settled.filter((t) => t.result === "win").length;
+  const losses   = settled.length - wins;
+  const winRate  = settled.length > 0 ? (wins / settled.length) * 100 : 0;
 
-  const settled = tips.filter((t) => t.result != null);
-  const pending = tips.filter((t) => t.result == null);
-  const wins = settled.filter((t) => t.result === "win").length;
-  const losses = settled.length - wins;
-  const winRate = settled.length > 0 ? (wins / settled.length) * 100 : 0;
-
-  const overTips = tips.filter((t) => t.tip === "over");
-  const underTips = tips.filter((t) => t.tip === "under");
-  const overWins = overTips.filter((t) => t.result === "win").length;
-  const underWins = underTips.filter((t) => t.result === "win").length;
+  const overTips   = tips.filter((t) => t.tip === "over");
+  const underTips  = tips.filter((t) => t.tip === "under");
+  const overWins   = overTips.filter((t)  => t.result === "win").length;
+  const underWins  = underTips.filter((t) => t.result === "win").length;
 
   const oddsSettled = settled.filter((t) => t.odds != null);
   const avgOdds = oddsSettled.length > 0
@@ -173,29 +170,31 @@ export default function CornersDashboard() {
 
   let roiSum = 0;
   for (const t of settled) {
-    const o = t.odds != null ? Number(t.odds) : 1.62;
+    const o = t.odds != null ? Number(t.odds) : 1.55;
     roiSum += t.result === "win" ? o - 1 : -1;
   }
   const roi = settled.length > 0 ? (roiSum / settled.length) * 100 : 0;
 
+  const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+
   const statCards = [
-    { title: "Összes tipp", value: tips.length, icon: Target, color: "text-blue-500", bg: "bg-blue-500/10" },
-    { title: "Nyerési arány", value: settled.length > 0 ? formatPercentage(winRate) : "—", icon: Trophy, color: "text-yellow-500", bg: "bg-yellow-500/10" },
-    { title: "ROI", value: settled.length > 0 ? formatROI(roi) : "—", icon: TrendingUp, color: roi >= 0 ? "text-success" : "text-destructive", bg: roi >= 0 ? "bg-success/10" : "bg-destructive/10" },
-    { title: "Átlag szorzó", value: avgOdds != null ? avgOdds.toFixed(2) : "—", icon: BarChart3, color: "text-purple-400", bg: "bg-purple-400/10" },
-    { title: "Over tippek", value: `${overTips.length} (${overWins}W)`, icon: ArrowUp, color: "text-blue-400", bg: "bg-blue-400/10" },
-    { title: "Under tippek", value: `${underTips.length} (${underWins}W)`, icon: ArrowDown, color: "text-purple-400", bg: "bg-purple-400/10" },
-    { title: "Nyertes", value: wins, icon: CheckCircle2, color: "text-success", bg: "bg-success/10" },
-    { title: "Vesztes", value: losses, icon: XCircle, color: "text-destructive", bg: "bg-destructive/10" },
-    { title: "Folyamatban", value: pending.length, icon: Clock, color: "text-warning", bg: "bg-warning/10" },
+    { title: "Összes tipp",   value: tips.length,                                    icon: Target,       color: "text-blue-500",     bg: "bg-blue-500/10" },
+    { title: "Nyerési arány", value: settled.length > 0 ? formatPercentage(winRate) : "—", icon: Trophy, color: "text-yellow-500",  bg: "bg-yellow-500/10" },
+    { title: "ROI",           value: settled.length > 0 ? formatROI(roi) : "—",       icon: TrendingUp,  color: roi >= 0 ? "text-success" : "text-destructive", bg: roi >= 0 ? "bg-success/10" : "bg-destructive/10" },
+    { title: "Átlag szorzó",  value: avgOdds != null ? avgOdds.toFixed(2) : "—",      icon: BarChart3,   color: "text-purple-400",   bg: "bg-purple-400/10" },
+    { title: "OVER tippek",   value: `${overTips.length} (${overWins}W)`,             icon: ArrowUp,     color: "text-blue-400",     bg: "bg-blue-400/10" },
+    { title: "UNDER tippek",  value: `${underTips.length} (${underWins}W)`,           icon: ArrowDown,   color: "text-purple-400",   bg: "bg-purple-400/10" },
+    { title: "Nyertes",       value: wins,                                             icon: CheckCircle2,color: "text-success",       bg: "bg-success/10" },
+    { title: "Vesztes",       value: losses,                                           icon: XCircle,     color: "text-destructive",  bg: "bg-destructive/10" },
+    { title: "Folyamatban",   value: pending.length,                                   icon: Clock,       color: "text-warning",      bg: "bg-warning/10" },
   ];
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center space-y-4">
         <div className="relative w-16 h-16">
-          <div className="absolute inset-0 border-4 border-primary/20 rounded-full"></div>
-          <div className="absolute inset-0 border-4 border-primary rounded-full border-t-transparent animate-spin"></div>
+          <div className="absolute inset-0 border-4 border-primary/20 rounded-full" />
+          <div className="absolute inset-0 border-4 border-primary rounded-full border-t-transparent animate-spin" />
         </div>
         <p className="text-muted-foreground font-medium animate-pulse">Adatok betöltése...</p>
       </div>
@@ -210,7 +209,7 @@ export default function CornersDashboard() {
             <XCircle className="w-12 h-12 text-destructive" />
             <div className="space-y-2">
               <h3 className="text-xl font-bold">Hiba történt</h3>
-              <p className="text-muted-foreground">Nem sikerült betölteni a szöglet tippeket.</p>
+              <p className="text-muted-foreground">Nem sikerült betölteni a tippeket.</p>
             </div>
             <button
               onClick={() => refetch()}
@@ -231,55 +230,25 @@ export default function CornersDashboard() {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl md:text-4xl font-bold font-display bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
-            Szöglet Bot Statisztikák
+            Foci Over/Under 2.5
           </h1>
           <p className="text-muted-foreground mt-1 flex items-center gap-2">
             <Activity className="w-4 h-4 text-primary" />
-            Over/Under {allTips[0]?.line ?? 9.5} szöglet tippek
+            Gól over/under 2.5 tippek · H2H + hazai/vendég forma + HT szűrő
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <a
-            href="/backtest_report.html"
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium text-green-400"
-          >
-            📊 Backtest riport →
-          </a>
-          <a
-            href={import.meta.env.BASE_URL || "/"}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
-          >
-            🏓 Asztalitenisz →
-          </a>
-          <a
-            href={`${import.meta.env.BASE_URL || "/"}football25`}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
-          >
-            ⚽ Foci 2.5 →
-          </a>
-          <a
-            href={`${import.meta.env.BASE_URL || "/"}basketball`}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
-          >
-            🏀 Kosár →
-          </a>
-          <a
-            href={`${import.meta.env.BASE_URL || "/"}multi-sport`}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium"
-          >
-            🏒🤾🏐 Multi →
-          </a>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <a href={`${base}/`}                className="flex items-center gap-1 px-3 py-2 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all text-sm font-medium">🏓 Asztalitenisz</a>
+          <a href={`${base}/corners`}         className="flex items-center gap-1 px-3 py-2 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all text-sm font-medium">📐 Szöglet</a>
+          <a href={`${base}/basketball`}      className="flex items-center gap-1 px-3 py-2 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all text-sm font-medium">🏀 Kosár</a>
+          <a href={`${base}/multi-sport`}     className="flex items-center gap-1 px-3 py-2 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all text-sm font-medium">🏒🤾🏐 Multi</a>
           <button
             onClick={() => refetch()}
             disabled={isFetching}
             className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm"
           >
             <RefreshCcw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />
-            <span className="font-medium text-sm">
-              {isFetching ? "Frissítés..." : "Frissítés"}
-            </span>
+            <span className="font-medium text-sm">{isFetching ? "Frissítés..." : "Frissítés"}</span>
           </button>
         </div>
       </div>
@@ -295,9 +264,9 @@ export default function CornersDashboard() {
             <div className="w-16 h-16 rounded-full bg-secondary flex items-center justify-center">
               <BarChart3 className="w-8 h-8 text-muted-foreground" />
             </div>
-            <h3 className="text-xl font-bold">Még nincsenek szöglet tippek</h3>
+            <h3 className="text-xl font-bold">Még nincsenek foci tippek</h3>
             <p className="text-muted-foreground max-w-md">
-              A bot automatikusan keres over/under {9.5} szöglet tippeket. Amint megfelelő meccsek vannak, itt jelennek meg.
+              A bot 30 percenként keres Over/Under 2.5 tippeket. Amint megfelelő meccsek vannak, itt jelennek meg.
             </p>
           </CardContent>
         </Card>
@@ -307,7 +276,7 @@ export default function CornersDashboard() {
             <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center">
               <BarChart3 className="w-6 h-6 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-bold">Ebben a hónapban nincs szöglet tipp</h3>
+            <h3 className="text-lg font-bold">Ebben a hónapban nincs tipp</h3>
             <p className="text-muted-foreground text-sm">Válassz másik hónapot, vagy az "Összes" nézetet.</p>
           </CardContent>
         </Card>
@@ -343,7 +312,7 @@ export default function CornersDashboard() {
                 <Badge variant="secondary" className="font-mono">{tips.length} összes</Badge>
               </div>
               {tips.map((t) => (
-                <TipCard key={t.event_id} tip={t} />
+                <TipCard key={t.fixture_id} tip={t} />
               ))}
             </div>
 

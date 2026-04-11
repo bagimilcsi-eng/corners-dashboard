@@ -123,8 +123,8 @@ export default function Dashboard() {
           <a href={`${import.meta.env.BASE_URL || "/"}corners`} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium">
             ⚽ Szöglet →
           </a>
-          <a href={`${import.meta.env.BASE_URL || "/"}coupons`} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium">
-            🎯 Szelvény →
+          <a href={`${import.meta.env.BASE_URL || "/"}football25`} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium">
+            ⚽ Foci 2.5 →
           </a>
           <a href={`${import.meta.env.BASE_URL || "/"}basketball`} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm text-sm font-medium">
             🏀 Kosárlabda →
