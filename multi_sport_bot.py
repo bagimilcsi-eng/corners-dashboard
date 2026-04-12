@@ -8,6 +8,8 @@ import logging
 import requests
 import psycopg2
 import psycopg2.extras
+import subprocess
+import atexit
 from datetime import datetime, date, timedelta
 from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
@@ -857,7 +859,35 @@ async def post_init(app: Application):
     await scan_and_send(app)
 
 
+def _start_rest_bot() -> subprocess.Popen | None:
+    """NBA Rest-Advantage Bot elindítása háttérfolyamatként."""
+    bot_file = os.path.join(os.path.dirname(__file__), "nba_rest_bot.py")
+    if not os.path.exists(bot_file):
+        logger.warning(f"nba_rest_bot.py nem található: {bot_file}")
+        return None
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, bot_file],
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+        logger.info(f"🏀 NBA Rest Bot elindítva (PID: {proc.pid})")
+        return proc
+    except Exception as e:
+        logger.error(f"NBA Rest Bot indítási hiba: {e}")
+        return None
+
+
 def main():
+    # NBA Rest Bot indítása párhuzamosan (ugyanaz a Telegram token/chat)
+    rest_proc = _start_rest_bot()
+
+    def _cleanup():
+        if rest_proc and rest_proc.poll() is None:
+            rest_proc.terminate()
+            logger.info("NBA Rest Bot leállítva.")
+    atexit.register(_cleanup)
+
     app = (
         Application.builder()
         .token(MULTI_SPORT_BOT_TOKEN)
@@ -870,7 +900,7 @@ def main():
     app.add_handler(CommandHandler("statisztika", cmd_statisztika))
     app.add_handler(CallbackQueryHandler(callback_handler))
 
-    logger.info("Multi-Sport Bot elindul (hoki 🏒 | kézilabda 🤾 | röplabda 🏐)")
+    logger.info("Multi-Sport Bot elindul (hoki 🏒 | kézilabda 🤾 | röplabda 🏐 | kosár rest 🏀)")
     app.run_polling(drop_pending_updates=True)
 
 
