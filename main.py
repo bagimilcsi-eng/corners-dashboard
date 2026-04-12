@@ -1255,9 +1255,10 @@ async def send_to_all_chats(bot, text: str):
     for chat_id in TELEGRAM_CHAT_IDS:
         try:
             await bot.send_message(chat_id=chat_id, text=text, parse_mode=ParseMode.MARKDOWN)
+            logger.info(f"✅ Üzenet elküldve: chat_id={chat_id}")
             await asyncio.sleep(0.05)
         except Exception as e:
-            logger.error(f"Küldési hiba (chat_id={chat_id}): {e}")
+            logger.error(f"❌ Küldési hiba (chat_id={chat_id}): {type(e).__name__}: {e}")
 
 
 # ─────────────────────────────────────────────
