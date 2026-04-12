@@ -42,3 +42,4 @@
    2025-11-19 | meccsek: 2 | össz: 342
    2025-11-20 | meccsek: 4 | össz: 346
    2025-11-21 | meccsek: 6 | össz: 352
+   2025-11-22 | meccsek: 29 | össz: 381

@@ -3,6 +3,7 @@ import sys
 import json
 import asyncio
 import logging
+import difflib
 import requests
 import psycopg2
 import psycopg2.extras
@@ -64,6 +65,132 @@ FOOTBALL_API_HEADERS = {
 }
 
 ALLOWED_KEYWORDS = ["setka", "czech"]
+
+
+# ─────────────────────────────────────────────
+#  24LIVE.COM – H2H FALLBACK
+# ─────────────────────────────────────────────
+
+LIVE24_BASE = "https://24live.com"
+LIVE24_SPORT_ID = 22  # asztalitenisz
+
+_24live_session = requests.Session()
+_24live_session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/134",
+    "Accept": "application/json",
+    "Referer": "https://24live.com/",
+    "Accept-Language": "hu-HU,hu;q=0.9,en;q=0.8",
+})
+_24live_session_ok = False
+_24live_player_cache: dict[str, int] = {}  # name.lower() → player_id
+
+
+def _init_24live_session():
+    global _24live_session_ok
+    if _24live_session_ok:
+        return
+    try:
+        _24live_session.get(f"{LIVE24_BASE}/", timeout=8)
+        _24live_session_ok = True
+    except Exception as e:
+        logger.error(f"24live session init hiba: {e}")
+
+
+def refresh_24live_player_cache():
+    """Feltölti a név→ID cache-t a 24live legutóbbi meccseiből."""
+    _init_24live_session()
+    try:
+        resp = _24live_session.get(
+            f"{LIVE24_BASE}/api/last-ended-matches/{LIVE24_SPORT_ID}", timeout=10
+        )
+        if resp.status_code != 200:
+            return
+        for match in resp.json():
+            for p in match.get("participants", []):
+                name = p.get("name", "").strip()
+                pid = p.get("id")
+                if name and pid:
+                    _24live_player_cache[name.lower()] = pid
+        logger.info(f"24live player cache: {len(_24live_player_cache)} játékos betöltve")
+    except Exception as e:
+        logger.error(f"24live cache hiba: {e}")
+
+
+def _find_24live_id(name: str) -> int | None:
+    """Megkeresi a játékos 24live ID-ját névből (pontos vagy közelítő egyezés)."""
+    if not _24live_player_cache:
+        refresh_24live_player_cache()
+    name_lower = name.lower().strip()
+    if name_lower in _24live_player_cache:
+        return _24live_player_cache[name_lower]
+    # Rövidített névhez (pl. "Levicky J.") → teljes nevet keresünk
+    last_name = name_lower.split()[0] if name_lower.split() else ""
+    if last_name:
+        candidates = [k for k in _24live_player_cache if k.startswith(last_name)]
+        if len(candidates) == 1:
+            return _24live_player_cache[candidates[0]]
+    # Fuzzy match
+    close = difflib.get_close_matches(name_lower, _24live_player_cache.keys(), n=1, cutoff=0.75)
+    if close:
+        return _24live_player_cache[close[0]]
+    return None
+
+
+def fetch_24live_h2h(home_name: str, away_name: str) -> tuple[int, int]:
+    """
+    24live.com participant-compare API — H2H adatok lekérése.
+    Visszaad: (home_wins, total) az utolsó max. 10 egymás elleni meccsből.
+    """
+    home_id = _find_24live_id(home_name)
+    away_id = _find_24live_id(away_name)
+    if not home_id or not away_id:
+        logger.debug(f"24live ID nem találat: '{home_name}'→{home_id}, '{away_name}'→{away_id}")
+        return 0, 0
+    _init_24live_session()
+    try:
+        url = f"{LIVE24_BASE}/api/participant-compare/{home_id}/{away_id}"
+        resp = _24live_session.get(url, timeout=12)
+        if resp.status_code != 200:
+            return 0, 0
+        data = resp.json()
+        # Cache bővítése a response résztvevőivel
+        for cat in ["live", "finished", "not_started"]:
+            for m in data.get("data", {}).get(cat, []):
+                for p in m.get("participants", []):
+                    pname = p.get("name", "").strip()
+                    pid = p.get("id")
+                    if pname and pid:
+                        _24live_player_cache[pname.lower()] = pid
+        finished = data.get("data", {}).get("finished", [])
+        if len(finished) < 5:
+            return 0, 0
+        last_n = finished[:10]
+        home_wins = 0
+        total = len(last_n)
+        home_name_l = home_name.lower()
+        for match in last_n:
+            participants = match.get("participants", [])
+            home_p = next((p for p in participants if p.get("type") == "home_team"), None)
+            if not home_p:
+                continue
+            home_p_name = home_p.get("name", "").lower()
+            score = match.get("score", {})
+            hs = score.get("home_team", 0) or 0
+            as_ = score.get("away_team", 0) or 0
+            # Melyik pozícióban játszott a mi "home" játékosunk?
+            ratio = difflib.SequenceMatcher(None, home_name_l, home_p_name).ratio()
+            is_home = ratio > 0.65 or (home_name_l.split()[0] in home_p_name)
+            if is_home:
+                if hs > as_:
+                    home_wins += 1
+            else:
+                if as_ > hs:
+                    home_wins += 1
+        logger.info(f"24live H2H: {home_name} vs {away_name} → {home_wins}/{total}")
+        return home_wins, total
+    except Exception as e:
+        logger.error(f"24live H2H fetch hiba ({home_name} vs {away_name}): {e}")
+        return 0, 0
 
 
 # ─────────────────────────────────────────────
@@ -413,7 +540,7 @@ def calculate_tip(
     if home_fs_rate is not None and away_fs_rate is not None:
         first_set_score = (home_fs_rate - away_fs_rate) * 20
 
-    use_h2h = h2h_available and h2h_required
+    use_h2h = h2h_available  # H2H-t használjuk ha van adat (24live vagy SofaScore)
 
     if use_h2h:
         h2h_rate  = h2h_home_wins / h2h_total
@@ -679,10 +806,15 @@ def build_tip_message(
     # Szorzók lekérése
     odds = sofascore_fetch_odds(event_id) if event_id else None
 
-    # H2H – csak ha a liga megköveteli
+    # H2H – SofaScore, majd 24live.com fallback
     h2h_home_wins, h2h_total = 0, 0
     if event_id:
         h2h_home_wins, h2h_total = sofascore_fetch_h2h(event_id, home, away)
+    if h2h_total < 5:
+        h2h_24w, h2h_24t = fetch_24live_h2h(home, away)
+        if h2h_24t >= 5:
+            h2h_home_wins, h2h_total = h2h_24w, h2h_24t
+            logger.info(f"24live H2H használva: {home} vs {away} → {h2h_24w}/{h2h_24t}")
 
     # Forma + első szett – elmúlt 14 nap, utolsó 10 meccs egyénenként
     if home_team_id:
@@ -1275,6 +1407,8 @@ async def send_startup_tips(app):
         return
 
     logger.info("Startup tippek generálása (következő 8 óra)...")
+    # 24live player cache előzetes feltöltése
+    await asyncio.to_thread(refresh_24live_player_cache)
     now_ts = int(datetime.utcnow().timestamp())
     horizon_ts = now_ts + 8 * 3600  # 8 óra előre
 
@@ -1677,7 +1811,7 @@ def main():
     else:
         logger.warning("JobQueue nem elérhető – automatikus figyelő kikapcsolva.")
 
-    logger.info("Bot fut. Asztalitenisz: SofaScore API (Setka Cup + Czech Liga | Czech: forma-alapú H2H nélkül | min. odds 1.55)")
+    logger.info("Bot fut. Asztalitenisz: SofaScore + 24live H2H (Setka Cup + Czech Liga | H2H: SofaScore→24live fallback | min. odds 1.55)")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 

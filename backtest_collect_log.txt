@@ -179,9 +179,9 @@
    2026-04-06 | összegyűjtve ma: 700 | össz: 89002
    2026-04-07 | összegyűjtve ma: 698 | össz: 89700
    2026-04-08 | összegyűjtve ma: 670 | össz: 90370
-9
-   2026-04-09 | összegyűjtve ma: 618 | össz: 91617
-   2026-04-10 | összegyűjtve ma: 444 | össz: 92061
-   2026-04-11 | összegyűjtve ma: 309 | össz: 92370
+   2026-04-09 | összegyűjtve ma: 615 | össz: 90985
+   2026-04-10 | összegyűjtve ma: 444 | össz: 91429
+   2026-04-11 | összegyűjtve ma: 314 | össz: 91743
 
-[DONE] 92370 esemény mentve → backtest_raw.json
+[DONE] 91743 esemény mentve → backtest_raw.json
+n
