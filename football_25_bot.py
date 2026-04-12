@@ -702,8 +702,8 @@ def main():
 
     async def post_init(application):
         scheduler.start()
-        logger.info(f"Football 2.5 O/U Bot fut. (SofaScore | min. odds {MIN_ODDS} | HT szűrő aktív)")
-        await send_admin(application.bot, "🤖 *Football 2.5 O/U Bot elindult* (SofaScore)\nSzkennelés: 30 percenként")
+        logger.info(f"Football 2.5 O/U Bot fut. (SofaScore | min. odds {MIN_ODDS} | OVER>={OVER_THRESHOLD} | UNDER<={UNDER_THRESHOLD} | HT szűrő aktív)")
+        await send_admin(application.bot, f"🤖 *Football 2.5 O/U Bot elindult* (SofaScore)\nSzkennelés: 30 percenként\nKüszöb: OVER≥{int(OVER_THRESHOLD*100)}% / UNDER≤{int(UNDER_THRESHOLD*100)}%")
         await asyncio.sleep(3)
         await scan_and_send_startup(application)
 
