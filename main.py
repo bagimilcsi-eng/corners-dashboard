@@ -361,6 +361,7 @@ def sofascore_fetch_player_stats(
 MIN_FORM_MATCHES         = 8     # Minimum 8 forma meccs kötelező
 MIN_H2H_MATCHES          = 5     # Min. 5 H2H meccs – kötelező
 STRONG_THRESHOLD         = 38.0  # Erős tipp küszöb (H2H kötelező, max ~70 pont)
+FORMA_ONLY_THRESHOLD     = 22.0  # Küszöb ha nincs H2H adat (forma+1.szett alapú, max ~50 pont)
 MIN_H2H_RATE             = 0.72  # H2H győzelmi arány minimum 72%
 MIN_FIRST_SET_RATE       = 0.65  # 1. szett győzelmi arány minimum 65% (ha van ≥5 adat)
 MIN_FORM_DIFF            = 0.28  # Forma különbség minimum 28 százalékpont
@@ -377,32 +378,33 @@ def calculate_tip(
     home_fs_total: int = 0,
     away_fs_wins: int = 0,
     away_fs_total: int = 0,
+    h2h_required: bool = True,
 ) -> tuple[str, str, float]:
     """
     Tipp kiszámítása pontozással. Visszaad: (winner, bizalom, score).
 
     Kötelező feltételek:
     - Min. 8 forma meccs mindkét játékoshoz
-    - Min. 5 H2H meccs (kötelező)
-    - H2H és forma iránya megegyezik
-    - Pontszám eléri a STRONG_THRESHOLD-ot (26.5)
-    - H2H győzelmi arány ≥ 65%
-    - Forma különbség ≥ 20 százalékpont
-    - 1. szett arány ≥ 60% (ha van ≥5 adat)
+    - Ha h2h_required=True: min. 5 H2H meccs kötelező
+    - Ha h2h_required=False: H2H hiányában forma+1.szett alapján dönt
+    - H2H és forma iránya megegyezik (csak ha H2H elérhető)
+    - Pontszám eléri a küszöböt
+    - Forma különbség ≥ 28 százalékpont
+    - 1. szett arány ≥ 65% (ha van ≥5 adat)
     """
     score = 0.0
 
     if home_form_total < MIN_FORM_MATCHES or away_form_total < MIN_FORM_MATCHES:
         return "uncertain", "🔴 Kevés forma adat (min. 8)", score
 
-    if h2h_total < MIN_H2H_MATCHES:
+    h2h_available = h2h_total >= MIN_H2H_MATCHES
+
+    if not h2h_available and h2h_required:
         return "uncertain", "🔴 Kevés H2H adat (min. 5)", score
 
     home_rate = home_form_wins / home_form_total
     away_rate = away_form_wins / away_form_total
-    h2h_rate  = h2h_home_wins / h2h_total
 
-    h2h_score  = (h2h_rate - 0.5) * 40
     form_score = (home_rate - away_rate) * 30
 
     home_fs_rate = (home_fs_wins / home_fs_total) if home_fs_total >= 5 else None
@@ -411,35 +413,47 @@ def calculate_tip(
     if home_fs_rate is not None and away_fs_rate is not None:
         first_set_score = (home_fs_rate - away_fs_rate) * 20
 
-    if (h2h_score > 0) != (form_score > 0):
-        return "uncertain", "🔴 Ellentmondó jelek (H2H vs forma)", score
+    use_h2h = h2h_available and h2h_required
 
-    score = h2h_score + form_score + first_set_score
+    if use_h2h:
+        h2h_rate  = h2h_home_wins / h2h_total
+        h2h_score = (h2h_rate - 0.5) * 40
+        if (h2h_score > 0) != (form_score > 0):
+            return "uncertain", "🔴 Ellentmondó jelek (H2H vs forma)", score
+        score = h2h_score + form_score + first_set_score
+        threshold = STRONG_THRESHOLD
+    else:
+        h2h_rate  = None
+        h2h_score = 0.0
+        score = form_score + first_set_score
+        threshold = FORMA_ONLY_THRESHOLD
 
-    if abs(score) < STRONG_THRESHOLD:
+    if abs(score) < threshold:
         return "uncertain", "🔴 Bizonytalan", score
 
     if score > 0:
         winner = "home"
-        w_h2h  = h2h_rate
         w_form = home_rate
         l_form = away_rate
         w_fs   = home_fs_rate
     else:
         winner = "away"
-        w_h2h  = 1.0 - h2h_rate
         w_form = away_rate
         l_form = home_rate
         w_fs   = away_fs_rate
 
-    if w_h2h < MIN_H2H_RATE:
-        return "uncertain", f"🔴 H2H gyenge ({w_h2h*100:.0f}% < 65%)", score
-    if round(w_form - l_form, 6) < MIN_FORM_DIFF:
-        return "uncertain", f"🔴 Forma különbség kicsi ({(w_form - l_form)*100:.0f}% < 20%)", score
-    if w_fs is not None and w_fs < MIN_FIRST_SET_RATE:
-        return "uncertain", f"🔴 1. szett gyenge ({w_fs*100:.0f}% < 60%)", score
+    if use_h2h:
+        w_h2h = h2h_rate if winner == "home" else (1.0 - h2h_rate)
+        if w_h2h < MIN_H2H_RATE:
+            return "uncertain", f"🔴 H2H gyenge ({w_h2h*100:.0f}% < 72%)", score
 
-    return winner, "🟢 Erős tipp", score
+    if round(w_form - l_form, 6) < MIN_FORM_DIFF:
+        return "uncertain", f"🔴 Forma különbség kicsi ({(w_form - l_form)*100:.0f}% < 28%)", score
+    if w_fs is not None and w_fs < MIN_FIRST_SET_RATE:
+        return "uncertain", f"🔴 1. szett gyenge ({w_fs*100:.0f}% < 65%)", score
+
+    mode = "H2H+forma" if h2h_available else "csak forma"
+    return winner, f"🟢 Erős tipp ({mode})", score
 
 
 MIN_ODDS = 1.55  # Globális minimum szorzó
@@ -447,11 +461,11 @@ MIN_ODDS = 1.55  # Globális minimum szorzó
 # Per-liga szűrők — backteszt alapján optimalizálva (176 nap, 1712 tipp)
 # TT Cup:        WR=60.3%, ROI=+13.5% (score≥38, odds≥1.70)
 # Setka Cup:     WR=54.4%, ROI=+0.6%  (score≥42, odds 1.70-1.90) — 1.90+ katasztrofális
-# Czech Liga Pro:WR=64.6%, ROI=+17.1% (score≥50) — alacsonyabb küszöbön negatív
+# Czech Liga Pro:WR=64.6%, ROI=+17.1% (score≥50 H2H-val) — H2H nélkül forma alapú, min_score=22
 LEAGUE_FILTERS: dict[str, dict] = {
-    "TT Cup":         {"min_score": 38, "min_odds": 1.70, "max_odds": 99.0},
-    "Setka Cup":      {"min_score": 42, "min_odds": 1.70, "max_odds": 1.90},
-    "Czech Liga Pro": {"min_score": 50, "min_odds": 1.55, "max_odds": 99.0},
+    "TT Cup":         {"min_score": 38, "min_odds": 1.70, "max_odds": 99.0, "h2h_required": True},
+    "Setka Cup":      {"min_score": 42, "min_odds": 1.70, "max_odds": 1.90, "h2h_required": True},
+    "Czech Liga Pro": {"min_score": 22, "min_odds": 1.55, "max_odds": 99.0, "h2h_required": False},
 }
 # ─────────────────────────────────────────────
 #  ADATBÁZIS – TIPP ELŐZMÉNYEK
@@ -655,10 +669,17 @@ def build_tip_message(
     ts = event.get("startTimestamp")
     time_str = datetime.fromtimestamp(ts, tz=HU_TZ).strftime("%H:%M") if ts else "?"
 
+    # Per-liga konfig (h2h_required és score/odds küszöbök)
+    lg_cfg = next(
+        (cfg for key, cfg in LEAGUE_FILTERS.items() if key.lower() in league.lower()),
+        {"min_score": 38, "min_odds": 1.55, "max_odds": 99.0, "h2h_required": True},
+    )
+    h2h_required = lg_cfg.get("h2h_required", True)
+
     # Szorzók lekérése
     odds = sofascore_fetch_odds(event_id) if event_id else None
 
-    # H2H – utolsó 5 kötelező
+    # H2H – csak ha a liga megköveteli
     h2h_home_wins, h2h_total = 0, 0
     if event_id:
         h2h_home_wins, h2h_total = sofascore_fetch_h2h(event_id, home, away)
@@ -685,19 +706,17 @@ def build_tip_message(
         home_fs_t,
         away_fs_w,
         away_fs_t,
+        h2h_required=h2h_required,
     )
 
     # Csak Erős tippeket küldünk
-    if confidence != "🟢 Erős tipp":
+    if not confidence.startswith("🟢 Erős tipp"):
+        logger.info(f"{home} vs {away} — [{league}] kizárva: {confidence} (score={score:.1f})")
         return None, None, None
 
-    # Per-liga score szűrő (backteszt alapján finomhangolt)
-    lg_cfg = next(
-        (cfg for key, cfg in LEAGUE_FILTERS.items() if key.lower() in league.lower()),
-        {"min_score": 38, "min_odds": 1.55, "max_odds": 99.0},
-    )
+    # Per-liga score szűrő
     if abs(score) < lg_cfg["min_score"]:
-        logger.debug(
+        logger.info(
             f"{home} vs {away} — [{league}] score szűrő "
             f"({abs(score):.1f} < {lg_cfg['min_score']}), kihagyva"
         )
@@ -717,7 +736,7 @@ def build_tip_message(
 
     # Per-liga odds szűrő (min ÉS max)
     if tip_odds < lg_cfg["min_odds"] or tip_odds > lg_cfg["max_odds"]:
-        logger.debug(
+        logger.info(
             f"{home} vs {away} — [{league}] odds szűrő "
             f"({tip_odds:.2f} nem esik {lg_cfg['min_odds']:.2f}–{lg_cfg['max_odds']:.2f} sávba), kihagyva"
         )
@@ -1657,7 +1676,7 @@ def main():
     else:
         logger.warning("JobQueue nem elérhető – automatikus figyelő kikapcsolva.")
 
-    logger.info("Bot fut. Asztalitenisz: SofaScore API (Setka Cup + Czech Liga | H2H kötelező | min. odds 1.55)")
+    logger.info("Bot fut. Asztalitenisz: SofaScore API (Setka Cup + Czech Liga | Czech: forma-alapú H2H nélkül | min. odds 1.55)")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
