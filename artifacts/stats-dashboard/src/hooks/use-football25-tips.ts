@@ -22,7 +22,7 @@ export interface Football25Tip {
   actual_goals:    number | null;
 }
 
-const API_BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || "";
 
 async function fetchTips(): Promise<Football25Tip[]> {
   const res = await fetch(`${API_BASE}/api/football25-tips`);
