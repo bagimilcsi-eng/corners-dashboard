@@ -36,10 +36,11 @@
    2025-11-14 | meccsek: 13 | össz: 266
    2025-11-15 | meccsek: 0 | össz: 266
    2025-11-16 | meccsek: 29 | össz: 295
+   2025-11-17 | meccsek: 14 | össz: 309
 
-   2025-11-17 | meccsek: 14 | össz: 337
    2025-11-18 | meccsek: 3 | össz: 340
    2025-11-19 | meccsek: 2 | össz: 342
    2025-11-20 | meccsek: 4 | össz: 346
    2025-11-21 | meccsek: 6 | össz: 352
    2025-11-22 | meccsek: 29 | össz: 381
+   2025-11-23 | meccsek: 34 | össz: 415
