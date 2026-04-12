@@ -809,6 +809,34 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(app: Application):
     init_db()
 
+    # Régi tippek törlése – tiszta lap
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM rest_advantage_tips")
+        conn.commit()
+        conn.close()
+        logger.info("rest_advantage_tips tábla törölve – tiszta indulás")
+    except Exception as e:
+        logger.warning(f"Tábla törlési hiba: {e}")
+
+    # Startup üzenet a Multi Sport csatornára
+    try:
+        await app.bot.send_message(
+            chat_id=MULTI_SPORT_CHAT_ID,
+            text=(
+                "🏀 <b>NBA Rest-Advantage Bot aktív</b>\n\n"
+                "Ettől a pillanattól az <b>NBA UNDER tippek</b> ide érkeznek.\n\n"
+                "📌 <b>Stratégia:</b> Back-to-Back / 3-in-4 fáradtsági UNDER\n"
+                "🎯 <b>Szűrők:</b> min. 2pt nettó előny · odds 1.68–2.15 · konfidencia ≥58%\n"
+                "🕘 <b>Scan:</b> 09:05 – 21:05 CET (páratlan órákon)\n\n"
+                "Várj tippekre – a következő scan 3 percen belül lefut."
+            ),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.warning(f"Startup üzenet hiba: {e}")
+
     scheduler = AsyncIOScheduler(timezone="Europe/Budapest")
 
     # Scan: minden 2 órában, CET 09:00 és 21:00 között
