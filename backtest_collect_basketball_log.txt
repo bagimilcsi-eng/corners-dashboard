@@ -1,4 +1,16 @@
-[BASKETBALL COLLECT] 2025-10-13 → 2026-04-10
+[BASKETBALL COLLECT] 2025-10-14 → 2026-04-11
   MIN_MATCHES: 6 | Output: backtest_raw_basketball.json
   API delay: 0.4s
 
+   2025-10-14 | meccsek: 5 | össz: 5
+   2025-10-15 | meccsek: 2 | össz: 7
+   2025-10-16 | meccsek: 5 | össz: 12
+   2025-10-17 | meccsek: 7 | össz: 19
+   2025-10-18 | meccsek: 7 | össz: 26
+   2025-10-19 | meccsek: 9 | össz: 35
+   2025-10-20 | meccsek: 7 | össz: 42
+   2025-10-21 | meccsek: 5 | össz: 47
+   2025-10-22 | meccsek: 6 | össz: 53
+   2025-10-23 | meccsek: 6 | össz: 59
+   2025-10-24 | meccsek: 10 | össz: 69
+   2025-10-25 | meccsek: 12 | össz: 81

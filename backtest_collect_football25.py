@@ -18,8 +18,11 @@ HEADERS = {
     "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
 }
 BASE    = "https://api-football-v1.p.rapidapi.com/v3"
-DELAY   = 0.5
-OUTPUT  = "backtest_raw_football25.json"
+DELAY         = 1.5     # másodperc hívások között
+DELAY_429     = 90      # 429 után ennyi mp szünet
+MAX_RETRIES   = 6       # max újrapróbálkozás hívásanként
+OUTPUT        = "backtest_raw_football25.json"
+CHECKPOINT    = "backtest_ckpt_football25.json"  # folytathatóság
 
 BACKTEST_DAYS = 180
 _now  = datetime.utcnow()
@@ -33,14 +36,23 @@ ALLOWED_LEAGUE_IDS = {
 
 
 def api_get(endpoint: str, params: dict = {}) -> dict:
-    time.sleep(DELAY)
-    try:
-        r = requests.get(f"{BASE}/{endpoint}", headers=HEADERS, params=params, timeout=12)
-        if r.status_code == 200:
-            return r.json()
-        print(f"  [WARN] HTTP {r.status_code} — {endpoint}", flush=True)
-    except Exception as e:
-        print(f"  [ERR] {endpoint}: {e}", flush=True)
+    for attempt in range(MAX_RETRIES):
+        time.sleep(DELAY)
+        try:
+            r = requests.get(f"{BASE}/{endpoint}", headers=HEADERS, params=params, timeout=15)
+            if r.status_code == 200:
+                return r.json()
+            if r.status_code in (429, 403):
+                wait = DELAY_429 * (attempt + 1)
+                print(f"  [LIMIT] HTTP {r.status_code} — várok {wait}s ({attempt+1}/{MAX_RETRIES})...", flush=True)
+                time.sleep(wait)
+                continue
+            print(f"  [WARN] HTTP {r.status_code} — {endpoint}", flush=True)
+            return {}
+        except Exception as e:
+            print(f"  [ERR] {endpoint}: {e}", flush=True)
+            time.sleep(10)
+    print(f"  [SKIP] {endpoint} — max retry elérve", flush=True)
     return {}
 
 
@@ -126,18 +138,42 @@ def parse_stats(matches: list) -> dict:
     }
 
 
+def load_checkpoint() -> tuple[list, set]:
+    if os.path.exists(CHECKPOINT):
+        try:
+            with open(CHECKPOINT, encoding="utf-8") as f:
+                data = json.load(f)
+            events = data.get("events", [])
+            done   = set(data.get("done_dates", []))
+            print(f"  [CKPT] Folytatás: {len(events)} meccs, {len(done)} kész nap", flush=True)
+            return events, done
+        except Exception:
+            pass
+    return [], set()
+
+
+def save_checkpoint(events: list, done_dates: set):
+    with open(CHECKPOINT, "w", encoding="utf-8") as f:
+        json.dump({"events": events, "done_dates": list(done_dates)}, f, ensure_ascii=False)
+
+
 def main():
     today = date.today()
     period_start = today - timedelta(days=BACKTEST_DAYS)
-    all_events = []
+
+    all_events, done_dates = load_checkpoint()
 
     print(f"[FOOTBALL25 COLLECT] {period_start} → {today - timedelta(days=1)}", flush=True)
     print(f"  Liga whitelist: {len(ALLOWED_LEAGUE_IDS)} liga | Output: {OUTPUT}", flush=True)
-    print(f"  API delay: {DELAY}s\n", flush=True)
+    print(f"  API delay: {DELAY}s | 429 backoff: {DELAY_429}s\n", flush=True)
 
     for day_idx in range(BACKTEST_DAYS, 0, -1):
         target_date = today - timedelta(days=day_idx)
         date_str    = target_date.strftime("%Y-%m-%d")
+
+        if date_str in done_dates:
+            print(f"   {date_str} | [SKIP] már feldolgozva", flush=True)
+            continue
 
         fixtures = fetch_fixtures_by_date(date_str)
         day_count = 0
@@ -219,14 +255,19 @@ def main():
             })
             day_count += 1
 
+        done_dates.add(date_str)
         print(f"   {date_str} | meccsek: {day_count} | össz: {len(all_events)}", flush=True)
 
-        if len(all_events) % 30 == 0 and all_events:
-            with open(OUTPUT, "w", encoding="utf-8") as f:
-                json.dump(all_events, f, ensure_ascii=False, indent=2)
+        # Checkpoint minden nap után — 429 esetén folytatható
+        save_checkpoint(all_events, done_dates)
+        with open(OUTPUT, "w", encoding="utf-8") as f:
+            json.dump(all_events, f, ensure_ascii=False, indent=2)
 
     with open(OUTPUT, "w", encoding="utf-8") as f:
         json.dump(all_events, f, ensure_ascii=False, indent=2)
+
+    if os.path.exists(CHECKPOINT):
+        os.remove(CHECKPOINT)
 
     print(f"\n[DONE] {len(all_events)} meccs mentve → {OUTPUT}", flush=True)
 
