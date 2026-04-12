@@ -87,3 +87,7 @@
    2026-01-04 | összegyűjtve ma: 594 | össz: 29141
    2026-01-05 | összegyűjtve ma: 609 | össz: 29750
    2026-01-06 | összegyűjtve ma: 567 | össz: 30317
+   2026-01-07 | összegyűjtve ma: 555 | össz: 30872
+   2026-01-08 | összegyűjtve ma: 593 | össz: 31465
+   2026-01-09 | összegyűjtve ma: 586 | össz: 32051
+   2026-01-10 | összegyűjtve ma: 542 | össz: 32593

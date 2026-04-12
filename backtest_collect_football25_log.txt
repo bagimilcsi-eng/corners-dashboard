@@ -1,5 +1,6 @@
 [FOOTBALL25 COLLECT] 2025-10-14 → 2026-04-11
   Liga whitelist: 32 liga | Output: backtest_raw_football25.json
   API delay: 1.5s | 429 backoff: 90s
+  Éjjeli ablak: 01:00–05:30 UTC (hogy a bot napközben kapjon kvótát)
 
-  [LIMIT] HTTP 403 — várok 90s (1/6)...
+  [WINDOW] Most 06:10 UTC — várok 18.8h-t (01:00 UTC-ig)...

@@ -157,6 +157,26 @@ def save_checkpoint(events: list, done_dates: set):
         json.dump({"events": events, "done_dates": list(done_dates)}, f, ensure_ascii=False)
 
 
+def wait_for_night_window():
+    """Csak 01:00–05:30 UTC között fut (éjjel), hogy ne eszik a bot kvótájából."""
+    NIGHT_START = 1     # 01:00 UTC
+    NIGHT_END   = 5     # 05:30 UTC
+    while True:
+        h = datetime.utcnow().hour
+        m = datetime.utcnow().minute
+        utc_minutes = h * 60 + m
+        start_min   = NIGHT_START * 60
+        end_min     = NIGHT_END   * 60 + 30
+        if start_min <= utc_minutes <= end_min:
+            return
+        next_start = datetime.utcnow().replace(hour=NIGHT_START, minute=0, second=0, microsecond=0)
+        if datetime.utcnow() >= next_start.replace(hour=NIGHT_END, minute=30):
+            next_start += timedelta(days=1)
+        wait_sec = (next_start - datetime.utcnow()).total_seconds()
+        print(f"  [WINDOW] Most {h:02d}:{m:02d} UTC — várok {wait_sec/3600:.1f}h-t (01:00 UTC-ig)...", flush=True)
+        time.sleep(min(wait_sec, 3600))
+
+
 def main():
     today = date.today()
     period_start = today - timedelta(days=BACKTEST_DAYS)
@@ -165,7 +185,8 @@ def main():
 
     print(f"[FOOTBALL25 COLLECT] {period_start} → {today - timedelta(days=1)}", flush=True)
     print(f"  Liga whitelist: {len(ALLOWED_LEAGUE_IDS)} liga | Output: {OUTPUT}", flush=True)
-    print(f"  API delay: {DELAY}s | 429 backoff: {DELAY_429}s\n", flush=True)
+    print(f"  API delay: {DELAY}s | 429 backoff: {DELAY_429}s", flush=True)
+    print(f"  Éjjeli ablak: 01:00–05:30 UTC (hogy a bot napközben kapjon kvótát)\n", flush=True)
 
     for day_idx in range(BACKTEST_DAYS, 0, -1):
         target_date = today - timedelta(days=day_idx)
@@ -175,6 +196,7 @@ def main():
             print(f"   {date_str} | [SKIP] már feldolgozva", flush=True)
             continue
 
+        wait_for_night_window()
         fixtures = fetch_fixtures_by_date(date_str)
         day_count = 0
 
