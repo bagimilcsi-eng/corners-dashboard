@@ -93,3 +93,4 @@
    2026-01-10 | összegyűjtve ma: 542 | össz: 32593
    2026-01-11 | összegyűjtve ma: 550 | össz: 33143
    2026-01-12 | összegyűjtve ma: 600 | össz: 33743
+   2026-01-13 | összegyűjtve ma: 622 | össz: 34365

@@ -442,7 +442,17 @@ def calculate_tip(
     return winner, "🟢 Erős tipp", score
 
 
-MIN_ODDS = 1.55  # Csak ennél magasabb szorzójú tippeket mutatjuk
+MIN_ODDS = 1.55  # Globális minimum szorzó
+
+# Per-liga szűrők — backteszt alapján optimalizálva (176 nap, 1712 tipp)
+# TT Cup:        WR=60.3%, ROI=+13.5% (score≥38, odds≥1.70)
+# Setka Cup:     WR=54.4%, ROI=+0.6%  (score≥42, odds 1.70-1.90) — 1.90+ katasztrofális
+# Czech Liga Pro:WR=64.6%, ROI=+17.1% (score≥50) — alacsonyabb küszöbön negatív
+LEAGUE_FILTERS: dict[str, dict] = {
+    "TT Cup":         {"min_score": 38, "min_odds": 1.70, "max_odds": 99.0},
+    "Setka Cup":      {"min_score": 42, "min_odds": 1.70, "max_odds": 1.90},
+    "Czech Liga Pro": {"min_score": 50, "min_odds": 1.55, "max_odds": 99.0},
+}
 # ─────────────────────────────────────────────
 #  ADATBÁZIS – TIPP ELŐZMÉNYEK
 # ─────────────────────────────────────────────
@@ -681,6 +691,18 @@ def build_tip_message(
     if confidence != "🟢 Erős tipp":
         return None, None, None
 
+    # Per-liga score szűrő (backteszt alapján finomhangolt)
+    lg_cfg = next(
+        (cfg for key, cfg in LEAGUE_FILTERS.items() if key.lower() in league.lower()),
+        {"min_score": 38, "min_odds": 1.55, "max_odds": 99.0},
+    )
+    if abs(score) < lg_cfg["min_score"]:
+        logger.debug(
+            f"{home} vs {away} — [{league}] score szűrő "
+            f"({abs(score):.1f} < {lg_cfg['min_score']}), kihagyva"
+        )
+        return None, None, None
+
     # Szorzó meghatározása a tippelt oldalhoz
     tip_odds = None
     if odds:
@@ -689,11 +711,16 @@ def build_tip_message(
         elif winner == "away":
             tip_odds = odds["away"]
 
-    # Ha nincs szorzó, alapértelmezett 1.62 — Setka/Czech mérkőzéseknél általában van odds
+    # Ha nincs szorzó, alapértelmezett 1.75 — ligánkénti min. odds felett
     if tip_odds is None:
-        tip_odds = 1.62
+        tip_odds = 1.75
 
-    if tip_odds < MIN_ODDS:
+    # Per-liga odds szűrő (min ÉS max)
+    if tip_odds < lg_cfg["min_odds"] or tip_odds > lg_cfg["max_odds"]:
+        logger.debug(
+            f"{home} vs {away} — [{league}] odds szűrő "
+            f"({tip_odds:.2f} nem esik {lg_cfg['min_odds']:.2f}–{lg_cfg['max_odds']:.2f} sávba), kihagyva"
+        )
         return None, tip_odds, None
 
     # Tipp meta adat (mentéshez)
