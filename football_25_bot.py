@@ -281,7 +281,7 @@ def fetch_odds(event_id: int) -> dict | None:
     markets = data.get("markets") or []
     for mkt in markets:
         name = (mkt.get("marketName") or mkt.get("name") or "").lower()
-        if not any(kw in name for kw in ["goals over/under", "total goals", "over/under"]):
+        if not any(kw in name for kw in ["goals over/under", "total goals", "over/under", "match goals"]):
             continue
         raw_hc = (mkt.get("choiceGroup") or mkt.get("handicap") or "")
         try:
@@ -491,13 +491,13 @@ def _collect_tips_sync(sent_ids: set) -> list:
             logger.debug(f"{home_nm} vs {away_nm} — kategória kizárva ({category})")
             continue
 
-        # H2H
+        # H2H (opcionális – SofaScore fociban nincs meccs-lista endpoint)
         h2h_matches = fetch_h2h(event_id)
-        if len(h2h_matches) < MIN_H2H_MATCHES:
-            logger.debug(f"{home_nm} vs {away_nm} — kevés H2H ({len(h2h_matches)}), kihagyva")
-            continue
-
-        h2h_stats = _parse_match_stats(h2h_matches)
+        h2h_stats   = _parse_match_stats(h2h_matches)
+        if h2h_stats["count"] > 0:
+            logger.debug(f"{home_nm} vs {away_nm} — H2H: {h2h_stats['count']} meccs")
+        else:
+            logger.debug(f"{home_nm} vs {away_nm} — nincs H2H adat, csak forma alapú elemzés")
 
         # Hazai forma
         home_matches = fetch_team_form(home_id, is_home=True,  last=10)
