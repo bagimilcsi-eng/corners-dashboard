@@ -583,16 +583,16 @@ def calculate_tip(
     return winner, f"🟢 Erős tipp ({mode})", score
 
 
-MIN_ODDS = 1.55  # Globális minimum szorzó
+MIN_ODDS = 1.60  # Globális minimum szorzó
 
-# Per-liga szűrők — backteszt alapján optimalizálva (176 nap, 1712 tipp)
-# TT Cup:        WR=60.3%, ROI=+13.5% (score≥38, odds≥1.70)
-# Setka Cup:     WR=54.4%, ROI=+0.6%  (score≥42, odds 1.70-1.90) — 1.90+ katasztrofális
-# Czech Liga Pro:WR=64.6%, ROI=+17.1% (score≥50 H2H-val) — H2H nélkül forma alapú, min_score=22
+# Per-liga szűrők — backteszt alapján optimalizálva (91 743 esemény, 180 nap)
+# Czech Liga Pro: WR=57%, ROI=+16.9% (score≥25, odds 1.85-2.50) — forma alapú, H2H ha elérhető
+# Setka Cup:      WR=67%, ROI=+10.7% (score≥40, odds 1.60-1.90, h2h≥5) — legjobb liga
+# TT Cup:         kevés adat, tartjuk a jelenlegi paramétert
 LEAGUE_FILTERS: dict[str, dict] = {
     "TT Cup":         {"min_score": 38, "min_odds": 1.70, "max_odds": 99.0, "h2h_required": True},
-    "Setka Cup":      {"min_score": 42, "min_odds": 1.70, "max_odds": 1.90, "h2h_required": True},
-    "Czech Liga Pro": {"min_score": 22, "min_odds": 1.55, "max_odds": 99.0, "h2h_required": False},
+    "Setka Cup":      {"min_score": 40, "min_odds": 1.60, "max_odds": 1.90, "h2h_required": True},
+    "Czech Liga Pro": {"min_score": 25, "min_odds": 1.85, "max_odds": 2.50, "h2h_required": False},
 }
 # ─────────────────────────────────────────────
 #  ADATBÁZIS – TIPP ELŐZMÉNYEK
