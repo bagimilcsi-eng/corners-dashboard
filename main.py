@@ -7,6 +7,8 @@ import difflib
 import requests
 import psycopg2
 import psycopg2.extras
+import subprocess
+import atexit
 from datetime import datetime, date, timedelta, timezone
 try:
     from zoneinfo import ZoneInfo
@@ -1810,6 +1812,21 @@ def main():
         logger.info("Eredmény értesítő bekapcsolva (600s).")
     else:
         logger.warning("JobQueue nem elérhető – automatikus figyelő kikapcsolva.")
+
+    # NBA Rest-Advantage Bot indítása párhuzamosan (külön token/chat)
+    _rest_bot_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nba_rest_bot.py")
+    _rest_proc = None
+    if os.path.exists(_rest_bot_file):
+        try:
+            _rest_proc = subprocess.Popen([sys.executable, _rest_bot_file])
+            logger.info(f"🏀 NBA Rest Bot elindítva (PID: {_rest_proc.pid})")
+        except Exception as _e:
+            logger.error(f"NBA Rest Bot indítási hiba: {_e}")
+
+    def _cleanup_rest():
+        if _rest_proc and _rest_proc.poll() is None:
+            _rest_proc.terminate()
+    atexit.register(_cleanup_rest)
 
     logger.info("Bot fut. Asztalitenisz: SofaScore + 24live H2H (Setka Cup + Czech Liga | H2H: SofaScore→24live fallback | min. odds 1.55)")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

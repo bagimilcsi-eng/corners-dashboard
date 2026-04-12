@@ -117,15 +117,7 @@ args = "Basketball Bot"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Multi Sport Bot"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "Football 25 Bot"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Backtest Football25"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
@@ -143,34 +135,12 @@ args = "bash -c 'while true; do python basketball_bot.py; echo \"Bot leállt, ú
 outputType = "console"
 
 [[workflows.workflow]]
-name = "Multi Sport Bot"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "bash -c 'while true; do python multi_sport_bot.py; echo \"Multi Sport Bot leállt, újraindítás 5 mp múlva...\"; sleep 5; done'"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow]]
 name = "Football 25 Bot"
 author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "bash -c 'while true; do python football_25_bot.py; echo \"Football 25 Bot leállt, újraindítás 5 mp múlva...\"; sleep 5; done'"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow]]
-name = "Backtest Football25"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python backtest_collect_football25.py > backtest_collect_football25_log.txt 2>&1"
 
 [workflows.workflow.metadata]
 outputType = "console"
