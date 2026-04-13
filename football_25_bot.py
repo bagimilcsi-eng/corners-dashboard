@@ -13,6 +13,8 @@ import os
 import sys
 import asyncio
 import time
+import subprocess
+import atexit
 import logging
 import requests
 import psycopg2
@@ -719,6 +721,21 @@ def main():
             await send_admin(application.bot, "ℹ️ Startup: nincs megfelelő tipp a következő 12 órában.")
         else:
             await send_admin(application.bot, f"✅ Startup: *{len(tips)} tipp* elküldve.")
+
+    # BTTS Bot indítása párhuzamosan (külön saját scheduler, ugyanaz a csatorna)
+    _btts_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "btts_bot.py")
+    _btts_proc = None
+    if os.path.exists(_btts_file):
+        try:
+            _btts_proc = subprocess.Popen([sys.executable, _btts_file])
+            logger.info(f"⚽ BTTS Bot elindítva (PID: {_btts_proc.pid})")
+        except Exception as _e:
+            logger.error(f"BTTS Bot indítási hiba: {_e}")
+
+    def _cleanup_btts():
+        if _btts_proc and _btts_proc.poll() is None:
+            _btts_proc.terminate()
+    atexit.register(_cleanup_btts)
 
     app.post_init = post_init
     app.run_polling(allowed_updates=["message"])
