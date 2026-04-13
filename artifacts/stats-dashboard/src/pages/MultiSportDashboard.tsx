@@ -126,6 +126,7 @@ export default function MultiSportDashboard() {
           <a href={`${import.meta.env.BASE_URL || "/"}corners`}     className={NAV_LINK}>⚽ Szöglet →</a>
           <a href={`${import.meta.env.BASE_URL || "/"}football25`}   className={NAV_LINK}>⚽ Foci 2.5 →</a>
           <a href={`${import.meta.env.BASE_URL || "/"}basketball`}  className={NAV_LINK}>🏀 Kosár →</a>
+          <a href={`${import.meta.env.BASE_URL || "/"}btts`}        className={NAV_LINK}>⚽⚽ BTTS →</a>
           <button onClick={() => refetch()} disabled={isFetching}
             className="group flex items-center gap-2 px-4 py-2.5 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all shadow-sm">
             <RefreshCcw className={cn("w-4 h-4 text-primary", isFetching && "animate-spin")} />

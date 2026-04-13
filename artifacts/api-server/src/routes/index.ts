@@ -6,6 +6,7 @@ import basketballRouter from "./basketball";
 import ttRouter from "./tt";
 import multiSportRouter from "./multi_sport";
 import football25Router from "./football25";
+import bttsRouter from "./btts";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(basketballRouter);
 router.use(ttRouter);
 router.use(multiSportRouter);
 router.use(football25Router);
+router.use(bttsRouter);
 
 export default router;

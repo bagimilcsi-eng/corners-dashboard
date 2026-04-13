@@ -242,6 +242,7 @@ export default function Football25Dashboard() {
           <a href={`${base}/corners`}         className="flex items-center gap-1 px-3 py-2 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all text-sm font-medium">📐 Szöglet</a>
           <a href={`${base}/basketball`}      className="flex items-center gap-1 px-3 py-2 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all text-sm font-medium">🏀 Kosár</a>
           <a href={`${base}/multi-sport`}     className="flex items-center gap-1 px-3 py-2 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all text-sm font-medium">🏒🤾🏐 Multi</a>
+          <a href={`${base}/btts`}            className="flex items-center gap-1 px-3 py-2 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all text-sm font-medium">⚽⚽ BTTS</a>
           <button
             onClick={() => refetch()}
             disabled={isFetching}

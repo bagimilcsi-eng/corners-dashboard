@@ -66,7 +66,6 @@ SOFA_HEADERS = {
 CHAT_IDS         = [6617439213, -1003802326194, -1003835559510]
 
 MIN_ODDS         = 1.55
-MAX_ODDS         = 2.20
 BTTS_THRESHOLD   = 0.62   # min. kombinált BTTS arány
 MIN_FORM_MATCHES = 6      # legalább ennyi befejezett mérkőzés kell
 MAX_DAILY_TIPS   = 4      # napi maximum tipp
@@ -296,7 +295,7 @@ def calculate_btts(home_stats: dict, away_stats: dict, odds: float) -> dict | No
     if combined < BTTS_THRESHOLD:
         return None
 
-    if odds < MIN_ODDS or odds > MAX_ODDS:
+    if odds < MIN_ODDS:
         return None
 
     confidence = round(combined * 100, 1)
@@ -504,7 +503,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Automatikusan keres BTTS YES tippeket futball meccsekre.\n\n"
         "📌 *Stratégia:* hazai és vendég BTTS arány elemzés\n"
         f"🎯 *Küszöb:* ≥{int(BTTS_THRESHOLD*100)}% kombinált arány\n"
-        f"💰 *Odds:* {MIN_ODDS}–{MAX_ODDS}\n"
+        f"💰 *Min. odds:* {MIN_ODDS}\n"
         f"📊 *Max napi tipp:* {MAX_DAILY_TIPS}\n\n"
         "Parancsok: /tippek /stat"
     )
