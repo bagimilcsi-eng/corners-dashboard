@@ -66,7 +66,10 @@ function TipCard({ tip }: { tip: BttsTip }) {
               {tip.home} <span className="text-muted-foreground font-normal">vs</span> {tip.away}
             </p>
             <div className="flex items-center gap-3 mt-1 text-sm flex-wrap">
-              <span className="font-bold text-green-400">⚽⚽ BTTS YES</span>
+              {tip.tip_type === "NO"
+                ? <span className="font-bold text-orange-400">🚫 BTTS NEM</span>
+                : <span className="font-bold text-green-400">⚽⚽ BTTS IGEN</span>
+              }
               <span className="font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded-md">
                 @{Number(tip.odds).toFixed(2)}
               </span>

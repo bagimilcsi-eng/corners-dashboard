@@ -14,6 +14,7 @@ export interface BttsTip {
   home_btts_rate: number | null;
   away_btts_rate: number | null;
   confidence: number | null;
+  tip_type: "YES" | "NO" | null;
   result: "WIN" | "LOSS" | null;
   actual_home_goals: number | null;
   actual_away_goals: number | null;

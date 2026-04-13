@@ -30,6 +30,7 @@ async function initBttsDb() {
         home_btts_rate    FLOAT,
         away_btts_rate    FLOAT,
         confidence        FLOAT,
+        tip_type          TEXT DEFAULT 'YES',
         result            TEXT,
         actual_home_goals INTEGER,
         actual_away_goals INTEGER,
@@ -41,7 +42,15 @@ async function initBttsDb() {
   }
 }
 
-initBttsDb().catch((e) =>
+async function alterBttsDb() {
+  const client = await pool.connect();
+  try {
+    await client.query(`ALTER TABLE btts_tips ADD COLUMN IF NOT EXISTS tip_type TEXT DEFAULT 'YES'`);
+  } catch (_) {}
+  finally { client.release(); }
+}
+
+initBttsDb().then(() => alterBttsDb()).catch((e) =>
   console.error("btts_tips tábla init hiba:", e.message)
 );
 

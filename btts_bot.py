@@ -66,7 +66,8 @@ SOFA_HEADERS = {
 CHAT_IDS         = [6617439213, -1003802326194, -1003835559510]
 
 MIN_ODDS         = 1.55
-BTTS_THRESHOLD   = 0.62   # min. kombinált BTTS arány
+BTTS_THRESHOLD   = 0.62   # min. kombinált arány → YES tipp
+BTTS_NO_THRESHOLD = 0.38  # max. kombinált arány → NO tipp
 MIN_FORM_MATCHES = 6      # legalább ennyi befejezett mérkőzés kell
 MAX_DAILY_TIPS   = 4      # napi maximum tipp
 
@@ -96,12 +97,14 @@ def init_db():
                 home_btts_rate   FLOAT,
                 away_btts_rate   FLOAT,
                 confidence       FLOAT,
+                tip_type         TEXT DEFAULT 'YES',
                 result           TEXT,
                 actual_home_goals INTEGER,
                 actual_away_goals INTEGER,
                 sent_at          TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        cur.execute("ALTER TABLE btts_tips ADD COLUMN IF NOT EXISTS tip_type TEXT DEFAULT 'YES'")
     conn.commit()
     conn.close()
     logger.info("btts_tips tábla kész")
@@ -114,10 +117,11 @@ def save_tip(data: dict) -> bool:
             cur.execute("""
                 INSERT INTO btts_tips
                     (fixture_id, home, away, league, league_id, country,
-                     match_time, odds, home_btts_rate, away_btts_rate, confidence)
+                     match_time, odds, home_btts_rate, away_btts_rate, confidence, tip_type)
                 VALUES
                     (%(fixture_id)s, %(home)s, %(away)s, %(league)s, %(league_id)s, %(country)s,
-                     %(match_time)s, %(odds)s, %(home_btts_rate)s, %(away_btts_rate)s, %(confidence)s)
+                     %(match_time)s, %(odds)s, %(home_btts_rate)s, %(away_btts_rate)s, %(confidence)s,
+                     %(tip_type)s)
                 ON CONFLICT (fixture_id) DO NOTHING
             """, data)
             saved = cur.rowcount > 0
@@ -222,8 +226,8 @@ def fetch_team_form(team_id: int, is_home: bool, last: int = 10) -> list:
     return pool[:last]
 
 
-def fetch_btts_odds(event_id: int) -> float | None:
-    """BTTS YES szorzó SofaScore-ból."""
+def fetch_btts_odds_both(event_id: int) -> dict:
+    """BTTS YES és NO szorzók SofaScore-ból. Visszatér: {'yes': float|None, 'no': float|None}"""
     data    = sofa_get(f"{SOFASCORE_BASE}/event/{event_id}/odds/1/all")
     markets = data.get("markets") or []
     for mkt in markets:
@@ -234,19 +238,21 @@ def fetch_btts_odds(event_id: int) -> float | None:
         ]):
             continue
         choices = mkt.get("choices") or []
-        yes_ch  = next(
+        yes_ch = next(
             (c for c in choices if (c.get("name") or "").lower() in ("yes", "igen", "gg", "si")),
             None,
         )
-        if not yes_ch:
-            # ha csak 2 choice van, az első általában a YES
-            if len(choices) == 2:
-                yes_ch = choices[0]
-        if yes_ch:
-            odds = _parse_odds(yes_ch.get("fractionalValue"))
-            if odds:
-                return odds
-    return None
+        no_ch = next(
+            (c for c in choices if (c.get("name") or "").lower() in ("no", "nem", "ng", "no")),
+            None,
+        )
+        if not yes_ch and not no_ch and len(choices) == 2:
+            yes_ch, no_ch = choices[0], choices[1]
+        yes_odds = _parse_odds(yes_ch.get("fractionalValue")) if yes_ch else None
+        no_odds  = _parse_odds(no_ch.get("fractionalValue"))  if no_ch  else None
+        if yes_odds or no_odds:
+            return {"yes": yes_odds, "no": no_odds}
+    return {"yes": None, "no": None}
 
 
 def fetch_fixture_result(event_id: int) -> dict | None:
@@ -281,7 +287,7 @@ def _parse_btts_stats(matches: list, team_id: int) -> dict:
     return {"btts_rate": btts / count, "count": count}
 
 
-def calculate_btts(home_stats: dict, away_stats: dict, odds: float) -> dict | None:
+def calculate_btts(home_stats: dict, away_stats: dict, yes_odds: float | None, no_odds: float | None) -> dict | None:
     home_rate = home_stats.get("btts_rate")
     away_rate = away_stats.get("btts_rate")
 
@@ -292,19 +298,26 @@ def calculate_btts(home_stats: dict, away_stats: dict, odds: float) -> dict | No
 
     combined = home_rate * 0.5 + away_rate * 0.5
 
-    if combined < BTTS_THRESHOLD:
-        return None
-
-    if odds < MIN_ODDS:
-        return None
-
-    confidence = round(combined * 100, 1)
-    return {
-        "odds":           odds,
-        "home_btts_rate": round(home_rate * 100, 1),
-        "away_btts_rate": round(away_rate * 100, 1),
-        "confidence":     confidence,
-    }
+    if combined >= BTTS_THRESHOLD and yes_odds and yes_odds >= MIN_ODDS:
+        confidence = round(combined * 100, 1)
+        return {
+            "tip_type":       "YES",
+            "odds":           yes_odds,
+            "home_btts_rate": round(home_rate * 100, 1),
+            "away_btts_rate": round(away_rate * 100, 1),
+            "confidence":     confidence,
+        }
+    if combined <= BTTS_NO_THRESHOLD and no_odds and no_odds >= MIN_ODDS:
+        # NO konfidencia: mennyire NEM valószínű a BTTS (100 - combined%)
+        confidence = round((1 - combined) * 100, 1)
+        return {
+            "tip_type":       "NO",
+            "odds":           no_odds,
+            "home_btts_rate": round(home_rate * 100, 1),
+            "away_btts_rate": round(away_rate * 100, 1),
+            "confidence":     confidence,
+        }
+    return None
 
 
 # ─── Tipp gyűjtés ─────────────────────────────────────────────────────────────
@@ -337,8 +350,8 @@ def _collect_tips_sync(sent_ids: set) -> list:
         if not home_id or not away_id:
             continue
 
-        odds = fetch_btts_odds(event_id)
-        if not odds:
+        both_odds = fetch_btts_odds_both(event_id)
+        if not both_odds["yes"] and not both_odds["no"]:
             logger.debug(f"Nincs BTTS odds: {home_team.get('name')} vs {away_team.get('name')}")
             time.sleep(0.3)
             continue
@@ -348,7 +361,7 @@ def _collect_tips_sync(sent_ids: set) -> list:
         home_stats = _parse_btts_stats(home_form, home_id)
         away_stats = _parse_btts_stats(away_form, away_id)
 
-        tip = calculate_btts(home_stats, away_stats, odds)
+        tip = calculate_btts(home_stats, away_stats, both_odds["yes"], both_odds["no"])
 
         if not tip:
             logger.info(
@@ -387,17 +400,21 @@ def build_message(tip: dict) -> str:
         else tip["match_time"]
     ) + timedelta(hours=2)   # UTC → CET
     mt_str = mt.strftime("%Y.%m.%d %H:%M")
+    is_yes = tip.get("tip_type", "YES") == "YES"
+
+    header = "⚽ *BTTS – Mindkét csapat gól (IGEN)*" if is_yes else "🚫 *BTTS – Mindkét csapat gól (NEM)*"
+    tipp_szoveg = "✅ _Tipp: Mindkét csapat szerez legalább 1 gólt_" if is_yes else "✅ _Tipp: Nem szerez mindkét csapat gólt_"
 
     return (
-        f"⚽ *BTTS – Mindkét csapat gól (IGEN)*\n\n"
+        f"{header}\n\n"
         f"🏆 {tip['league']}"
         + (f" ({tip['country']})" if tip.get("country") else "") + "\n"
         f"🆚 *{tip['home']} – {tip['away']}*\n"
         f"🕐 {mt_str}\n\n"
         f"📊 Hazai BTTS: {tip['home_btts_rate']}% | Vendég BTTS: {tip['away_btts_rate']}%\n"
-        f"💡 Kombinált: {tip['confidence']}%\n"
+        f"💡 Konfidencia: {tip['confidence']}%\n"
         f"💰 Szorzó: *{tip['odds']:.2f}*\n\n"
-        f"✅ _Tipp: Mindkét csapat szerez legalább 1 gólt_"
+        f"{tipp_szoveg}"
     )
 
 
@@ -445,6 +462,7 @@ async def scan_and_send(context):
             "home_btts_rate":  tip["home_btts_rate"] / 100,
             "away_btts_rate":  tip["away_btts_rate"] / 100,
             "confidence":      tip["confidence"],
+            "tip_type":        tip.get("tip_type", "YES"),
         }
         saved = await loop.run_in_executor(None, save_tip, db_data)
         if not saved:
@@ -470,7 +488,9 @@ def _check_results_sync() -> list:
             continue
         hg = res["home_goals"]
         ag = res["away_goals"]
-        result = "WIN" if hg >= 1 and ag >= 1 else "LOSS"
+        tip_type = tip.get("tip_type", "YES")
+        btts_happened = hg >= 1 and ag >= 1
+        result = "WIN" if (tip_type == "YES" and btts_happened) or (tip_type == "NO" and not btts_happened) else "LOSS"
         update_result(tip["fixture_id"], result, hg, ag)
         updates.append({**tip, "result": result, "hg": hg, "ag": ag})
         time.sleep(0.3)
@@ -483,12 +503,18 @@ async def check_results(context):
     updates = await loop.run_in_executor(None, _check_results_sync)
     for upd in updates:
         icon = "✅" if upd["result"] == "WIN" else "❌"
+        tip_type = upd.get("tip_type", "YES")
+        btts_happened = upd["hg"] >= 1 and upd["ag"] >= 1
+        if tip_type == "YES":
+            eredmeny_szoveg = "✅ Mindkét csapat szerzett gólt – NYERT" if upd["result"] == "WIN" else "❌ Nem szerezett mindkét csapat gólt – VESZÍTETT"
+        else:
+            eredmeny_szoveg = "✅ Nem szerezett mindkét csapat gólt – NYERT" if upd["result"] == "WIN" else "❌ Mindkét csapat szerzett gólt – VESZÍTETT"
         msg  = (
-            f"{icon} *BTTS Eredmény*\n\n"
+            f"{icon} *BTTS {'IGEN' if tip_type == 'YES' else 'NEM'} Eredmény*\n\n"
             f"🆚 {upd['home']} – {upd['away']}\n"
             f"🏆 {upd['league']}\n"
             f"⚽ Végeredmény: {upd['hg']} – {upd['ag']}\n"
-            f"{'✅ Mindkét csapat szerzett gólt – NYERT' if upd['result'] == 'WIN' else '❌ Nem szerezett mindkét csapat gólt – VESZÍTETT'}\n"
+            f"{eredmeny_szoveg}\n"
             f"💰 Szorzó volt: {upd['odds']:.2f}"
         )
         await send_to_all_chats(app.bot, msg)
@@ -500,9 +526,9 @@ async def check_results(context):
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         "⚽ *BTTS Bot – Mindkét csapat gól*\n\n"
-        "Automatikusan keres BTTS YES tippeket futball meccsekre.\n\n"
-        "📌 *Stratégia:* hazai és vendég BTTS arány elemzés\n"
-        f"🎯 *Küszöb:* ≥{int(BTTS_THRESHOLD*100)}% kombinált arány\n"
+        "Automatikusan keres BTTS YES és NO tippeket futball meccsekre.\n\n"
+        f"📌 *YES tipp:* kombinált BTTS arány ≥{int(BTTS_THRESHOLD*100)}%\n"
+        f"📌 *NO tipp:* kombinált BTTS arány ≤{int(BTTS_NO_THRESHOLD*100)}%\n"
         f"💰 *Min. odds:* {MIN_ODDS}\n"
         f"📊 *Max napi tipp:* {MAX_DAILY_TIPS}\n\n"
         "Parancsok: /tippek /stat"
