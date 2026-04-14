@@ -187,8 +187,12 @@ def sofa_get(url: str) -> dict:
 def _parse_odds(val) -> float | None:
     if val is None:
         return None
+    s = str(val).strip()
     try:
-        return float(str(val))
+        if "/" in s:
+            a, b = s.split("/")
+            return round(int(a) / int(b) + 1, 2)
+        return round(float(s), 2)
     except Exception:
         return None
 
