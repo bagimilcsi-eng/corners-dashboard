@@ -51,7 +51,7 @@ SOFASCORE_HEADERS = {
 
 # ── Beállítások ─────────────────────────────────────────────────────────────
 MIN_DOG_ODDS   = 1.80
-MAX_DOG_ODDS   = 2.50
+MAX_DOG_ODDS   = 999.0
 SCAN_INTERVAL  = 1800   # 30 perc
 RESULT_CHECK   = 3600   # 60 perc
 TZ             = ZoneInfo("Europe/Budapest")
@@ -208,18 +208,13 @@ def fmt_odds(odds: float) -> str:
 
 def build_tip_message(home, away, tip_team, home_odds, away_odds, dog_odds,
                       match_time_str) -> str:
-    fav_team = home if home_odds <= away_odds else away
     return (
         f"🏏 *IPL KRIKETT TIPP*\n\n"
         f"🏟 {md_escape(home)} 🆚 {md_escape(away)}\n"
         f"📅 {md_escape(match_time_str)}\n\n"
         f"✅ *TIPP: {md_escape(tip_team)} nyeri a meccset*\n"
         f"📊 Szorzó: *@{fmt_odds(dog_odds)}*\n\n"
-        f"📈 Stratégia: Away\\-Dog \\(vendég underdog\\)\n"
-        f"🎯 Backtest: 87 meccs, \\+17\\.2% ROI\n\n"
-        f"━━━━━━━━━━━━━━━━\n"
-        f"Szorzók: {md_escape(home)} @{fmt_odds(home_odds)} \\| {md_escape(away)} @{fmt_odds(away_odds)}\n"
-        f"Favorit: {md_escape(fav_team)}"
+        f"Szorzók: {md_escape(home)} @{fmt_odds(home_odds)} \\| {md_escape(away)} @{fmt_odds(away_odds)}"
     )
 
 def build_result_message(home, away, tip_team, dog_odds, result, actual_winner) -> str:
