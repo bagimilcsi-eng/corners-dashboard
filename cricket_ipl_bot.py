@@ -301,7 +301,7 @@ async def scan_and_send(bot: Bot):
                 continue
 
             # Tipp küldése
-            match_time_str = match_dt.strftime("%Y\\-\\%m\\-\\%d %H:%M")
+            match_time_str = match_dt.strftime("%Y-%m-%d %H:%M")
             msg = build_tip_message(home, away, away, home_odds, away_odds, dog_odds, match_time_str)
 
             await send_to_all(bot, msg)
