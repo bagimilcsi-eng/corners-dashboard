@@ -9,6 +9,7 @@ import Football25Dashboard from "@/pages/Football25Dashboard";
 import BasketballDashboard from "@/pages/BasketballDashboard";
 import MultiSportDashboard from "@/pages/MultiSportDashboard";
 import BTTSDashboard from "@/pages/BTTSDashboard";
+import CricketDashboard from "@/pages/CricketDashboard";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -28,6 +29,7 @@ function Router() {
       <Route path="/basketball" component={BasketballDashboard} />
       <Route path="/multi-sport" component={MultiSportDashboard} />
       <Route path="/btts" component={BTTSDashboard} />
+      <Route path="/cricket" component={CricketDashboard} />
       <Route component={NotFound} />
     </Switch>
   );
