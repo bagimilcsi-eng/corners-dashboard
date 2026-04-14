@@ -34,12 +34,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN    = os.environ["MULTI_SPORT_BOT_TOKEN"]
+BOT_TOKEN    = os.environ["CRICKET_BOT_TOKEN"]
 DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
 CHAT_IDS = [
     int(x.strip())
-    for x in os.environ.get("MULTI_SPORT_CHAT_ID", "").split(",")
+    for x in os.environ.get("CRICKET_CHAT_ID", "").split(",")
     if x.strip()
 ]
 
