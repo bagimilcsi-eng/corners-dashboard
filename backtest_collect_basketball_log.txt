@@ -1,28 +1,20 @@
-[BASKETBALL COLLECT] 2025-10-15 → 2026-04-12
+[BASKETBALL COLLECT] 2025-10-16 → 2026-04-13
   MIN_MATCHES: 6 | Output: backtest_raw_basketball.json
   API delay: 0.4s
 
-   2025-10-15 | meccsek: 2 | össz: 2
-   2025-10-16 | meccsek: 5 | össz: 7
-   2025-10-17 | meccsek: 7 | össz: 14
-   2025-10-18 | meccsek: 7 | össz: 21
-   2025-10-19 | meccsek: 0 | össz: 21
-   2025-10-20 | meccsek: 5 | össz: 26
-   2025-10-21 | meccsek: 4 | össz: 30
-   2025-10-22 | meccsek: 6 | össz: 36
-   2025-10-23 | meccsek: 6 | össz: 42
-   2025-10-24 | meccsek: 10 | össz: 52
-   2025-10-25 | meccsek: 12 | össz: 64
-   2025-10-26 | meccsek: 12 | össz: 76
-   2025-10-27 | meccsek: 8 | össz: 84
-   2025-10-28 | meccsek: 6 | össz: 90
-   2025-10-29 | meccsek: 7 | össz: 97
-   2025-10-30 | meccsek: 6 | össz: 103
-   2025-10-31 | meccsek: 8 | össz: 111
-   2025-11-01 | meccsek: 13 | össz: 124
-   2025-11-02 | meccsek: 15 | össz: 139
-   2025-11-03 | meccsek: 11 | össz: 150
-   2025-11-04 | meccsek: 4 | össz: 154
-   2025-11-05 | meccsek: 5 | össz: 159
-   2025-11-06 | meccsek: 7 | össz: 166
-   2025-11-07 | meccsek: 8 | össz: 174
+   2025-10-16 | meccsek: 5 | össz: 5
+   2025-10-17 | meccsek: 7 | össz: 12
+   2025-10-18 | meccsek: 7 | össz: 19
+   2025-10-19 | meccsek: 8 | össz: 27
+   2025-10-20 | meccsek: 5 | össz: 32
+   2025-10-21 | meccsek: 4 | össz: 36
+   2025-10-22 | meccsek: 6 | össz: 42
+   2025-10-23 | meccsek: 6 | össz: 48
+   2025-10-24 | meccsek: 10 | össz: 58
+   2025-10-25 | meccsek: 12 | össz: 70
+   2025-10-26 | meccsek: 12 | össz: 82
+   2025-10-27 | meccsek: 8 | össz: 90
+   2025-10-28 | meccsek: 6 | össz: 96
+   2025-10-29 | meccsek: 7 | össz: 103
+   2025-10-30 | meccsek: 6 | össz: 109
+   2025-10-31 | meccsek: 8 | össz: 117

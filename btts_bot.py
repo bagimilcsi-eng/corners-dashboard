@@ -63,7 +63,7 @@ SOFA_HEADERS = {
     "Origin":         "https://www.sofascore.com",
 }
 
-CHAT_IDS         = [6617439213, -1003802326194, -1003835559510]
+CHAT_IDS         = [6617439213, -1003802326194, -1003835559510, -1003731160176]
 
 MIN_ODDS         = 1.55
 BTTS_THRESHOLD   = 0.62   # min. kombinált arány → YES tipp
