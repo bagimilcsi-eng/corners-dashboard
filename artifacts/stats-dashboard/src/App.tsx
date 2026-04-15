@@ -10,6 +10,7 @@ import BasketballDashboard from "@/pages/BasketballDashboard";
 import MultiSportDashboard from "@/pages/MultiSportDashboard";
 import BTTSDashboard from "@/pages/BTTSDashboard";
 import CricketDashboard from "@/pages/CricketDashboard";
+import TTDashboard from "@/pages/TTDashboard";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/multi-sport" component={MultiSportDashboard} />
       <Route path="/btts" component={BTTSDashboard} />
       <Route path="/cricket" component={CricketDashboard} />
+      <Route path="/tt" component={TTDashboard} />
       <Route component={NotFound} />
     </Switch>
   );

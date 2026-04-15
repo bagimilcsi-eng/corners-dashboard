@@ -1,9 +1,9 @@
 import { useState } from "react";
-import { useBttsTips, type BttsTip } from "@/hooks/use-btts-tips";
+import { useTtTips, type TtTip } from "@/hooks/use-tt-tips";
 import { format } from "date-fns";
 import { hu } from "date-fns/locale";
 import {
-  Trophy, TrendingUp, Target, Clock, CheckCircle2, XCircle,
+  Trophy, TrendingUp, Target, Clock, XCircle,
   RefreshCcw, BarChart3, Activity,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,46 +14,57 @@ import { cn, formatPercentage, formatROI } from "@/lib/utils";
 const NAV_LINK = "flex items-center gap-1 px-3 py-2 rounded-xl bg-card border border-card-border hover:border-primary/50 hover:bg-secondary transition-all text-sm font-medium";
 const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
 
-function computeStats(tips: BttsTip[]) {
-  const settled = tips.filter((t) => t.result === "WIN" || t.result === "LOSS");
-  const wins = settled.filter((t) => t.result === "WIN").length;
-  const losses = settled.filter((t) => t.result === "LOSS").length;
+function computeStats(tips: TtTip[]) {
+  const settled = tips.filter((t) => t.result === "win" || t.result === "loss");
+  const wins = settled.filter((t) => t.result === "win").length;
+  const losses = settled.filter((t) => t.result === "loss").length;
   const pending = tips.filter((t) => t.result === null).length;
   const winRate = settled.length > 0 ? (wins / settled.length) * 100 : 0;
 
   let roiSum = 0, roiCount = 0, oddsSum = 0, oddsCount = 0;
   for (const t of settled) {
-    roiSum += t.result === "WIN" ? Number(t.odds) - 1 : -1;
-    roiCount++;
-    oddsSum += Number(t.odds);
-    oddsCount++;
+    if (t.odds) {
+      roiSum += t.result === "win" ? Number(t.odds) - 1 : -1;
+      roiCount++;
+      oddsSum += Number(t.odds);
+      oddsCount++;
+    }
   }
   const roi = roiCount > 0 ? (roiSum / roiCount) * 100 : 0;
   const avgOdds = oddsCount > 0 ? oddsSum / oddsCount : null;
 
-  return { total: tips.length, settled: settled.length, wins, losses, pending, winRate, roi, avgOdds };
+  const leagueMap: Record<string, { wins: number; losses: number; pending: number }> = {};
+  for (const t of tips) {
+    if (!leagueMap[t.league]) leagueMap[t.league] = { wins: 0, losses: 0, pending: 0 };
+    if (t.result === "win") leagueMap[t.league].wins++;
+    else if (t.result === "loss") leagueMap[t.league].losses++;
+    else leagueMap[t.league].pending++;
+  }
+
+  return { total: tips.length, settled: settled.length, wins, losses, pending, winRate, roi, avgOdds, leagueMap };
 }
 
-function TipCard({ tip }: { tip: BttsTip }) {
-  const dt = format(new Date(tip.match_time), "MMM d. HH:mm", { locale: hu });
-  const homeRate = tip.home_btts_rate != null ? `${Math.round(tip.home_btts_rate * 100)}%` : "–";
-  const awayRate = tip.away_btts_rate != null ? `${Math.round(tip.away_btts_rate * 100)}%` : "–";
-  const conf = tip.confidence != null ? `${Math.round(tip.confidence)}%` : "–";
+function TipCard({ tip }: { tip: TtTip }) {
+  const dt = format(new Date(tip.sent_at * 1000), "MMM d. HH:mm", { locale: hu });
+  const startDt = tip.start_timestamp
+    ? format(new Date(tip.start_timestamp * 1000), "MMM d. HH:mm", { locale: hu })
+    : dt;
 
   return (
     <Card className="glass-card hover:-translate-y-0.5 transition-transform duration-300">
       <CardContent className="p-5">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted-foreground">⚽ {tip.league}</span>
-            {tip.country && <span className="text-xs text-muted-foreground/60">· {tip.country}</span>}
-            <span className="text-xs text-muted-foreground">· {dt}</span>
+            <span className="text-xs text-muted-foreground">🏓 {tip.league}</span>
+            <span className="text-xs text-muted-foreground">· {startDt}</span>
           </div>
           <div className="flex items-center gap-2">
-            {tip.result === "WIN" ? (
+            {tip.result === "win" ? (
               <Badge variant="success" className="shadow-sm shadow-success/20">✅ Nyert</Badge>
-            ) : tip.result === "LOSS" ? (
+            ) : tip.result === "loss" ? (
               <Badge variant="destructive" className="shadow-sm shadow-destructive/20">❌ Veszett</Badge>
+            ) : tip.result === "postponed" ? (
+              <Badge variant="secondary">🔄 Elhalasztva</Badge>
             ) : (
               <Badge variant="warning" className="shadow-sm shadow-warning/20">⏳ Folyamatban</Badge>
             )}
@@ -66,26 +77,23 @@ function TipCard({ tip }: { tip: BttsTip }) {
               {tip.home} <span className="text-muted-foreground font-normal">vs</span> {tip.away}
             </p>
             <div className="flex items-center gap-3 mt-1 text-sm flex-wrap">
-              {tip.tip_type === "NO"
-                ? <span className="font-bold text-orange-400">🚫 BTTS NEM</span>
-                : <span className="font-bold text-green-400">⚽⚽ BTTS IGEN</span>
-              }
-              <span className="font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded-md">
-                @{Number(tip.odds).toFixed(2)}
+              <span className="font-bold text-blue-400">
+                🏆 {tip.predicted_name} győz
               </span>
-              <span className="text-xs text-muted-foreground">
-                Jel: <span className="text-foreground font-medium">{conf}</span>
-              </span>
-            </div>
-            <div className="mt-2 flex gap-4 text-xs text-muted-foreground flex-wrap">
-              <span>Hazai BTTS: <span className="text-foreground font-medium">{homeRate}</span></span>
-              <span>Vendég BTTS: <span className="text-foreground font-medium">{awayRate}</span></span>
+              {tip.odds && (
+                <span className="font-bold text-green-400 bg-green-400/10 px-2 py-0.5 rounded-md">
+                  @{Number(tip.odds).toFixed(2)}
+                </span>
+              )}
             </div>
           </div>
-          {tip.result != null && tip.actual_home_goals != null && tip.actual_away_goals != null && (
+          {tip.result != null && tip.actual_winner && (
             <div className="text-right shrink-0">
-              <p className="text-xs text-muted-foreground">Eredmény</p>
-              <p className="font-bold text-lg">{tip.actual_home_goals}–{tip.actual_away_goals}</p>
+              <p className="text-xs text-muted-foreground">Nyertes</p>
+              <p className="font-bold text-sm">
+                {tip.actual_winner === tip.predicted ? "✅ " : "❌ "}
+                {tip.actual_winner === "home" ? tip.home : tip.away}
+              </p>
             </div>
           )}
         </div>
@@ -94,8 +102,8 @@ function TipCard({ tip }: { tip: BttsTip }) {
   );
 }
 
-export default function BTTSDashboard() {
-  const { data, isLoading, isError, refetch, isFetching } = useBttsTips();
+export default function TTDashboard() {
+  const { data, isLoading, isError, refetch, isFetching } = useTtTips();
   const [selectedMonth, setSelectedMonth] = useState<MonthKey>("all");
 
   if (isLoading) {
@@ -118,7 +126,7 @@ export default function BTTSDashboard() {
             <XCircle className="w-12 h-12 text-destructive" />
             <div>
               <h3 className="text-xl font-bold">Hiba történt</h3>
-              <p className="text-muted-foreground">Nem sikerült betölteni a BTTS tippeket.</p>
+              <p className="text-muted-foreground">Nem sikerült betölteni az asztalitenisz tippeket.</p>
             </div>
             <button onClick={() => refetch()} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm">
               Újrapróbálás
@@ -129,13 +137,11 @@ export default function BTTSDashboard() {
     );
   }
 
-  const monthKeys = buildMonthKeys(
-    data.map((t) => new Date(t.match_time).getTime() / 1000)
-  );
+  const monthKeys = buildMonthKeys(data.map((t) => t.sent_at));
 
   const filtered = selectedMonth === "all"
     ? data
-    : data.filter((t) => isInMonth(new Date(t.match_time).getTime() / 1000, selectedMonth));
+    : data.filter((t) => isInMonth(t.sent_at, selectedMonth));
 
   const stats = computeStats(filtered);
 
@@ -143,14 +149,13 @@ export default function BTTSDashboard() {
     <div className="min-h-screen bg-background text-foreground">
       <div className="max-w-5xl mx-auto px-4 py-8 space-y-8">
 
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <div className="flex items-center gap-3 mb-1">
               <a href={`${base}/`} className="text-muted-foreground hover:text-foreground transition-colors text-sm">← Vissza</a>
             </div>
-            <h1 className="text-3xl font-bold tracking-tight">⚽⚽ BTTS Statisztikák</h1>
-            <p className="text-muted-foreground mt-1">Mindkét csapat gól – YES tippek</p>
+            <h1 className="text-3xl font-bold tracking-tight">🏓 Asztalitenisz Statisztikák</h1>
+            <p className="text-muted-foreground mt-1">Setka Cup · Czech Liga Pro · TT Cup</p>
           </div>
           <button
             onClick={() => refetch()}
@@ -162,22 +167,18 @@ export default function BTTSDashboard() {
           </button>
         </div>
 
-        {/* Nav */}
         <div className="flex flex-wrap gap-2">
           <a href={`${base}/corners`}     className={NAV_LINK}>📐 Szöglet</a>
           <a href={`${base}/football25`}  className={NAV_LINK}>⚽ Foci 2.5</a>
           <a href={`${base}/basketball`}  className={NAV_LINK}>🏀 Kosár</a>
-          <a href={`${base}/multi-sport`} className={NAV_LINK}>🏒 Multi</a>
-          <a href={`${base}/cricket`}    className={NAV_LINK}>🏏 Cricket</a>
-          <a href={`${base}/tt`}        className={NAV_LINK}>🏓 Asztalitenisz</a>
+          <a href={`${base}/btts`}        className={NAV_LINK}>⚽⚽ BTTS</a>
+          <a href={`${base}/cricket`}     className={NAV_LINK}>🏏 Cricket</a>
         </div>
 
-        {/* Month picker */}
         {monthKeys.length > 1 && (
           <MonthPicker months={monthKeys} selected={selectedMonth} onChange={setSelectedMonth} />
         )}
 
-        {/* Stats cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <Card className="glass-card">
             <CardHeader className="pb-2 pt-4 px-5">
@@ -233,7 +234,22 @@ export default function BTTSDashboard() {
           </Card>
         </div>
 
-        {/* Tip list */}
+        {Object.keys(stats.leagueMap).length > 1 && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {Object.entries(stats.leagueMap).map(([league, s]) => (
+              <Card key={league} className="glass-card">
+                <CardContent className="p-4">
+                  <p className="text-sm font-semibold mb-1">{league}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {s.wins}N / {s.losses}V
+                    {s.pending > 0 && ` · ${s.pending} folyamatban`}
+                  </p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
         <div className="space-y-3">
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <Activity className="w-5 h-5 text-primary" /> Tippek
@@ -243,13 +259,14 @@ export default function BTTSDashboard() {
             <Card className="glass-card">
               <CardContent className="py-12 flex flex-col items-center justify-center text-center gap-3">
                 <Clock className="w-10 h-10 text-muted-foreground/40" />
-                <p className="text-muted-foreground">Még nincsenek BTTS tippek.</p>
+                <p className="text-muted-foreground">Még nincsenek asztalitenisz tippek.</p>
               </CardContent>
             </Card>
           ) : (
-            filtered.map((tip) => <TipCard key={tip.fixture_id} tip={tip} />)
+            filtered.map((tip) => <TipCard key={tip.event_id} tip={tip} />)
           )}
         </div>
+
       </div>
     </div>
   );

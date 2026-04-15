@@ -2,3 +2,4 @@
   MIN_MATCHES: 6 | Output: backtest_raw_basketball.json
   API delay: 0.4s
 
+   2025-10-17 | meccsek: 7 | össz: 7

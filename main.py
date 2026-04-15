@@ -524,12 +524,12 @@ def calculate_tip(
     score = 0.0
 
     if home_form_total < MIN_FORM_MATCHES or away_form_total < MIN_FORM_MATCHES:
-        return "uncertain", "🔴 Kevés forma adat (min. 8)", score
+        return "uncertain", f"🔴 Kevés forma adat (min. {MIN_FORM_MATCHES})", score
 
     h2h_available = h2h_total >= MIN_H2H_MATCHES
 
     if not h2h_available and h2h_required:
-        return "uncertain", "🔴 Kevés H2H adat (min. 5)", score
+        return "uncertain", f"🔴 Kevés H2H adat (min. {MIN_H2H_MATCHES})", score
 
     home_rate = home_form_wins / home_form_total
     away_rate = away_form_wins / away_form_total
@@ -992,6 +992,7 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode=ParseMode.MARKDOWN,
     )
 
+    already_saved = {t["event_id"] for t in load_tips()}
     sent = 0
     skipped_low_odds = 0
     for event in upcoming[:15]:
@@ -1000,9 +1001,17 @@ async def cmd_tt_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if msg is None:
                 skipped_low_odds += 1
                 continue
+            # Mindig visszajelzés a parancs küldőjének
             await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
+            newly_saved = False
             if tip_meta:
-                save_tip_record(tip_meta)
+                newly_saved = save_tip_record(tip_meta)
+            # Ha ez új tipp (nem volt még a DB-ben), elküldjük a csoportokba is
+            event_id = tip_meta.get("event_id") if tip_meta else None
+            if newly_saved and event_id and event_id not in already_saved:
+                await send_to_all_chats(context.bot, msg)
+                already_saved.add(event_id)
+                logger.info(f"Parancs által talált tipp csoportokba elküldve: event_id={event_id}")
             sent += 1
             if sent >= 8:
                 break
