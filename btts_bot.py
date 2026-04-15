@@ -66,9 +66,9 @@ SOFA_HEADERS = {
 CHAT_IDS         = [6617439213, -1003802326194, -1003835559510, -1003731160176]
 
 MIN_ODDS         = 1.55
-BTTS_THRESHOLD   = 0.62   # min. kombinált arány → YES tipp
-BTTS_NO_THRESHOLD = 0.38  # max. kombinált arány → NO tipp
-MIN_FORM_MATCHES = 6      # legalább ennyi befejezett mérkőzés kell
+BTTS_THRESHOLD   = 0.57   # min. kombinált arány → YES tipp
+BTTS_NO_THRESHOLD = 0.43  # max. kombinált arány → NO tipp
+MIN_FORM_MATCHES = 5      # legalább ennyi befejezett mérkőzés kell
 MAX_DAILY_TIPS   = 4      # napi maximum tipp
 
 # Ligák amikre figyelünk (SofaScore tournament ID-k — 0 = minden liga)
