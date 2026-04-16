@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "CZ2H5PalqHUnfFRO1zJH9"
+uri = "file://bots_letoltheto.zip"
+type = "unspecified"
+title = "Bots – biztonsági mentés (ZIP)"

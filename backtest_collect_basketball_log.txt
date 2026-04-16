@@ -12,3 +12,21 @@
    2025-10-25 | meccsek: 12 | össz: 56
    2025-10-26 | meccsek: 12 | össz: 68
    2025-10-27 | meccsek: 8 | össz: 76
+   2025-10-28 | meccsek: 6 | össz: 82
+   2025-10-29 | meccsek: 7 | össz: 89
+   2025-10-30 | meccsek: 6 | össz: 95
+   2025-10-31 | meccsek: 8 | össz: 103
+   2025-11-01 | meccsek: 13 | össz: 116
+   2025-11-02 | meccsek: 15 | össz: 131
+   2025-11-03 | meccsek: 11 | össz: 142
+   2025-11-04 | meccsek: 4 | össz: 146
+   2025-11-05 | meccsek: 5 | össz: 151
+   2025-11-06 | meccsek: 7 | össz: 158
+   2025-11-07 | meccsek: 8 | össz: 166
+   2025-11-08 | meccsek: 11 | össz: 177
+   2025-11-09 | meccsek: 13 | össz: 190
+   2025-11-10 | meccsek: 9 | össz: 199
+   2025-11-11 | meccsek: 6 | össz: 205
+   2025-11-12 | meccsek: 7 | össz: 212
+   2025-11-13 | meccsek: 8 | össz: 220
+   2025-11-14 | meccsek: 12 | össz: 232
