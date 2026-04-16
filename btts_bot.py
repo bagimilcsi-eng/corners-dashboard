@@ -5,7 +5,7 @@ BTTS Bot – Both Teams to Score (Mindkét csapat gól)
 - Hazai csapat utolsó 10 hazai meccse + vendég csapat utolsó 10 vendég meccse
 - BTTS YES szűrő: min. 62% kombinált arány
 - Min. szorzó: 1.55 | Max. napi tipp: 4
-- Token: COUPON_BOT_TOKEN | Chat: COUPON_CHAT_ID (ugyanaz mint Football 25)
+- Token: BTTS_BOT_TOKEN | Chat: COUPON_CHAT_ID
 """
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ logger = logging.getLogger("btts_bot")
 
 # ─── Konfiguráció ─────────────────────────────────────────────────────────────
 
-BOT_TOKEN    = os.environ["COUPON_BOT_TOKEN"]
+BOT_TOKEN    = os.environ["BTTS_BOT_TOKEN"]
 ADMIN_CHAT   = os.environ.get("COUPON_CHAT_ID", "")
 DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 HU_TZ        = ZoneInfo("Europe/Budapest")
