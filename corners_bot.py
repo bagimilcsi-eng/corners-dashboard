@@ -34,7 +34,7 @@ CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_
 DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
 # Csoportok ahol a tippek és eredmények megjelennek
-GROUP_CHAT_IDS = [-1003715006026, -1003835559510, -1003731160176]
+GROUP_CHAT_IDS = [-1003715006026, -1003835559510]
 
 import os as _os
 SOFASCORE_BASE = (
