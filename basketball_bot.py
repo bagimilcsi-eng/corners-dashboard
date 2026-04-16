@@ -35,6 +35,8 @@ BASKETBALL_BOT_TOKEN = os.environ["BASKETBALL_BOT_TOKEN"]
 BASKETBALL_CHAT_ID   = os.environ["BASKETBALL_CHAT_ID"]
 DATABASE_URL         = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 
+EXTRA_CHAT_IDS = [-1003985563292]
+
 import os as _os
 SOFASCORE_BASE = (
     "https://www.sofascore.com/api/v1"
@@ -796,6 +798,11 @@ async def scan_and_send(bot: Bot):
                 parse_mode=ParseMode.HTML,
                 reply_markup=keyboard,
             )
+            for extra_id in EXTRA_CHAT_IDS:
+                try:
+                    await bot.send_message(chat_id=extra_id, text=msg, parse_mode=ParseMode.HTML)
+                except Exception as ex:
+                    logger.error(f"Extra chat küldési hiba ({extra_id}): {ex}")
             save_tip(tip)
             sent_ids.add(str(tip["event_id"]))
             sent_count += 1
@@ -841,6 +848,11 @@ async def check_results(bot: Bot):
                 text=msg,
                 parse_mode=ParseMode.HTML,
             )
+            for extra_id in EXTRA_CHAT_IDS:
+                try:
+                    await bot.send_message(chat_id=extra_id, text=msg, parse_mode=ParseMode.HTML)
+                except Exception as ex:
+                    logger.error(f"Extra chat eredmény küldési hiba ({extra_id}): {ex}")
         except Exception as e:
             logger.error(f"Eredmény küldési hiba: {e}")
 
