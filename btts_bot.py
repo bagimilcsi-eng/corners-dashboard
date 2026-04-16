@@ -443,7 +443,7 @@ async def send_admin(bot, text: str):
 # ─── Scan és eredmény ─────────────────────────────────────────────────────────
 
 async def scan_and_send(context):
-    app  = context.application
+    app  = context if hasattr(context, "bot") else context.application
     loop = asyncio.get_event_loop()
 
     sent_ids   = await loop.run_in_executor(None, load_sent_ids)
@@ -502,7 +502,7 @@ def _check_results_sync() -> list:
 
 
 async def check_results(context):
-    app  = context.application
+    app  = context if hasattr(context, "bot") else context.application
     loop = asyncio.get_event_loop()
     updates = await loop.run_in_executor(None, _check_results_sync)
     for upd in updates:
