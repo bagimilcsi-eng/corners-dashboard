@@ -2,3 +2,13 @@
   MIN_MATCHES: 6 | Output: backtest_raw_basketball.json
   API delay: 0.4s
 
+   2025-10-18 | meccsek: 6 | össz: 6
+   2025-10-19 | meccsek: 7 | össz: 13
+   2025-10-20 | meccsek: 5 | össz: 18
+   2025-10-21 | meccsek: 4 | össz: 22
+   2025-10-22 | meccsek: 6 | össz: 28
+   2025-10-23 | meccsek: 6 | össz: 34
+   2025-10-24 | meccsek: 10 | össz: 44
+   2025-10-25 | meccsek: 12 | össz: 56
+   2025-10-26 | meccsek: 12 | össz: 68
+   2025-10-27 | meccsek: 8 | össz: 76
