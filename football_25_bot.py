@@ -206,10 +206,12 @@ def sofa_get(url: str) -> dict:
     try:
         time.sleep(API_DELAY)
         r = requests.get(url, headers=SOFASCORE_HEADERS, timeout=15)
-        r.raise_for_status()
+        if r.status_code != 200:
+            logger.warning(f"SofaScore {r.status_code} – {url}")
+            return {}
         return r.json()
     except Exception as e:
-        logger.debug(f"SofaScore hiba ({url}): {e}")
+        logger.warning(f"SofaScore hiba ({url}): {e}")
         return {}
 
 
@@ -296,8 +298,8 @@ def fetch_odds(event_id: int) -> dict | None:
         un_ch    = next((c for c in choices if (c.get("name") or "").lower().startswith("under")), None)
         if not ov_ch or not un_ch:
             continue
-        over_odds  = _parse_odds(ov_ch.get("fractionalValue"))
-        under_odds = _parse_odds(un_ch.get("fractionalValue"))
+        over_odds  = _parse_odds(ov_ch.get("currentValue") or ov_ch.get("fractionalValue"))
+        under_odds = _parse_odds(un_ch.get("currentValue") or un_ch.get("fractionalValue"))
         if over_odds and under_odds:
             return {"over": over_odds, "under": under_odds, "bookmaker_count": 1}
     return None
@@ -574,6 +576,9 @@ async def scan_and_send(context):
 
 # ─── Eredmény figyelő ─────────────────────────────────────────────────────────
 
+RESULT_CHECK_AFTER_H  = 2    # Eredmény ellenőrzés: meccs kezdete után N órával
+RESULT_STALE_AFTER_H  = 72   # Ha N óra után sem jött eredmény → timeout lezárás
+
 def _check_results_sync() -> list:
     now_ts  = int(datetime.utcnow().timestamp())
     pending = load_pending_tips()
@@ -581,7 +586,22 @@ def _check_results_sync() -> list:
 
     for tip in pending:
         ts = tip.get("start_timestamp", 0)
-        if ts + RESULT_CHECK_MIN * 60 > now_ts:
+        elapsed_h = (now_ts - ts) / 3600
+
+        if elapsed_h < RESULT_CHECK_AFTER_H:
+            continue
+
+        # Ha túl régi és SofaScore még mindig nem adja vissza → timeout
+        if elapsed_h >= RESULT_STALE_AFTER_H:
+            update_result(tip["fixture_id"], "timeout", None)
+            logger.warning(f"Timeout lezárás: {tip['home']} vs {tip['away']} (fixture_id={tip['fixture_id']}, {elapsed_h:.0f}h régi)")
+            notifs.append(
+                f"⏱ *Timeout — eredmény nem érkezett!*\n\n"
+                f"⚽ {tip['home']} vs {tip['away']}\n"
+                f"🏆 {tip.get('league', '?')}\n"
+                f"🎯 Tippünk: *{'OVER 2.5' if tip['tip']=='over' else 'UNDER 2.5'}*\n"
+                f"ℹ️ Az API {RESULT_STALE_AFTER_H}h után sem adott eredményt — automatikusan lezárva."
+            )
             continue
 
         res = fetch_fixture_result(tip["fixture_id"])
@@ -641,7 +661,7 @@ async def cmd_tippek(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for r in rows:
         dt      = datetime.fromtimestamp(r["start_timestamp"], tz=HU_TZ).strftime("%m.%d. %H:%M")
         tip_lbl = "OVER 2.5" if r["tip"] == "over" else "UNDER 2.5"
-        res_ico = {"win": "✅", "loss": "❌"}.get(r.get("result") or "", "⏳")
+        res_ico = {"win": "✅", "loss": "❌", "timeout": "⏱"}.get(r.get("result") or "", "⏳")
         odds_s  = f"@{r['odds']:.2f}" if r.get("odds") else ""
         lines.append(f"{res_ico} {r['home']} vs {r['away']} — *{tip_lbl}* {odds_s} _{dt}_")
 
@@ -662,21 +682,24 @@ async def cmd_stat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("ℹ️ Még nincs lezárt tipp.")
         return
 
-    total  = len(rows)
-    wins   = sum(1 for r in rows if r[1] == "win")
+    settled = [r for r in rows if r[1] in ("win", "loss")]
+    timeouts = sum(1 for r in rows if r[1] == "timeout")
+    total  = len(settled)
+    wins   = sum(1 for r in settled if r[1] == "win")
     losses = total - wins
-    wr     = wins / total * 100
-    roi    = sum((r[2] - 1 if r[1] == "win" else -1) for r in rows) / total * 100
-    avg_o  = sum(r[2] for r in rows if r[2]) / total
+    wr     = wins / total * 100 if total else 0
+    roi    = sum((r[2] - 1 if r[1] == "win" else -1) for r in settled) / total * 100 if total else 0
+    avg_o  = sum(r[2] for r in settled if r[2]) / total if total else 0
 
-    over_rows  = [r for r in rows if r[0] == "over"]
-    under_rows = [r for r in rows if r[0] == "under"]
+    over_rows  = [r for r in settled if r[0] == "over"]
+    under_rows = [r for r in settled if r[0] == "under"]
     ow = sum(1 for r in over_rows  if r[1] == "win")
     uw = sum(1 for r in under_rows if r[1] == "win")
 
+    timeout_line = f"\n⏱ Timeout (eredmény nélkül): {timeouts}" if timeouts else ""
     msg = (
         f"📊 *Foci 2.5 O/U Statisztika*\n\n"
-        f"📈 Összes tipp: {total}\n"
+        f"📈 Lezárt tipp: {total}{timeout_line}\n"
         f"✅ Nyert: {wins} ({wr:.1f}%)\n"
         f"❌ Veszett: {losses}\n"
         f"💹 ROI: {roi:+.1f}%\n"
