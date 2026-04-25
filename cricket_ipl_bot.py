@@ -120,6 +120,21 @@ def get_pending_tips():
             """)
             return cur.fetchall()
 
+def timeout_old_pending():
+    """48 óránál régebbi lezáratlan tippek → timeout."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE cricket_tips
+                SET result = 'timeout', resolved_at = NOW()
+                WHERE result IS NULL
+                  AND match_time < NOW() - INTERVAL '48 hours'
+            """)
+            cnt = cur.rowcount
+        conn.commit()
+    if cnt:
+        logger.warning(f"Cricket timeout: {cnt} tipp 48h után lezárva")
+
 def update_result(event_id, result, actual_winner):
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -139,7 +154,7 @@ def frac_to_dec(f) -> float | None:
         if "/" in s:
             a, b = s.split("/")
             return round(int(a) / int(b) + 1, 3)
-        return round(float(s) + 1, 3)
+        return round(float(s), 3)
     except Exception:
         return None
 
@@ -147,14 +162,15 @@ def fetch_ipl_matches(date_str: str) -> list[dict]:
     """Adott nap IPL meccseit adja vissza."""
     try:
         r = requests.get(
-            f"https://api.sofascore.com/api/v1/sport/cricket/scheduled-events/{date_str}",
+            f"https://www.sofascore.com/api/v1/sport/cricket/scheduled-events/{date_str}",
             headers=SOFASCORE_HEADERS, timeout=10
         )
         if r.status_code != 200:
+            logger.warning(f"IPL meccsek HTTP {r.status_code} ({date_str})")
             return []
         return [
             e for e in r.json().get("events", [])
-            if e["tournament"]["name"] == "Indian Premier League"
+            if e.get("tournament", {}).get("name") == "Indian Premier League"
         ]
     except Exception as exc:
         logger.warning(f"IPL meccsek lekérési hiba: {exc}")
@@ -164,16 +180,22 @@ def fetch_odds(event_id: int) -> tuple[float | None, float | None]:
     """(home_odds, away_odds) decimális formátumban."""
     try:
         r = requests.get(
-            f"https://api.sofascore.com/api/v1/event/{event_id}/odds/1/all",
+            f"https://www.sofascore.com/api/v1/event/{event_id}/odds/1/all",
             headers=SOFASCORE_HEADERS, timeout=8
         )
         if r.status_code != 200:
+            logger.warning(f"Odds HTTP {r.status_code} (event={event_id})")
             return None, None
         for m in r.json().get("markets", []):
             if m.get("marketName") == "Full time":
                 ch = m.get("choices", [])
-                h = frac_to_dec(next((c["fractionalValue"] for c in ch if c["name"] == "1"), None))
-                a = frac_to_dec(next((c["fractionalValue"] for c in ch if c["name"] == "2"), None))
+                def pick(name):
+                    c = next((x for x in ch if x.get("name") == name), None)
+                    if not c:
+                        return None
+                    return frac_to_dec(c.get("currentValue") or c.get("fractionalValue"))
+                h = pick("1")
+                a = pick("2")
                 return h, a
     except Exception as exc:
         logger.warning(f"Odds lekérési hiba {event_id}: {exc}")
@@ -183,18 +205,18 @@ def fetch_result(event_id: int) -> str | None:
     """'home' vagy 'away' ha vége, None ha még fut."""
     try:
         r = requests.get(
-            f"https://api.sofascore.com/api/v1/event/{event_id}",
+            f"https://www.sofascore.com/api/v1/event/{event_id}",
             headers=SOFASCORE_HEADERS, timeout=8
         )
         if r.status_code != 200:
+            logger.warning(f"Eredmény HTTP {r.status_code} (event={event_id})")
             return None
         e = r.json().get("event", {})
-        if e.get("status", {}).get("type") != "finished":
+        status_type = e.get("status", {}).get("type", "")
+        if status_type != "finished":
             return None
-        hs = e.get("homeScore", {}).get("current", 0)
-        as_ = e.get("awayScore", {}).get("current", 0)
-        if hs == as_ == 0:
-            return None
+        hs = e.get("homeScore", {}).get("current", 0) or 0
+        as_ = e.get("awayScore", {}).get("current", 0) or 0
         return "home" if hs > as_ else "away"
     except Exception as exc:
         logger.warning(f"Eredmény lekérési hiba {event_id}: {exc}")
@@ -316,6 +338,7 @@ async def scan_and_send(bot: Bot):
 
 # ── Eredmény ellenőrzés ──────────────────────────────────────────────────────
 async def check_results(bot: Bot):
+    timeout_old_pending()
     pending = get_pending_tips()
     logger.info(f"Eredmény ellenőrzés: {len(pending)} függő tipp")
 

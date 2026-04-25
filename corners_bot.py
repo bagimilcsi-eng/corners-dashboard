@@ -191,10 +191,12 @@ def sofa_get(url: str) -> dict:
     try:
         time.sleep(API_DELAY_SEC)
         r = requests.get(url, headers=SOFASCORE_HEADERS, timeout=15)
-        r.raise_for_status()
+        if r.status_code != 200:
+            logger.warning(f"SofaScore HTTP {r.status_code} ({url})")
+            return {}
         return r.json()
     except Exception as e:
-        logger.error(f"SofaScore API hiba ({url}): {e}")
+        logger.warning(f"SofaScore API hiba ({url}): {e}")
         return {}
 
 
@@ -318,7 +320,8 @@ def fetch_corner_odds(event_id: int, tip: str) -> float | None:
             for choice in market.get("choices", []):
                 name = choice.get("name", "").lower()
                 if (tip == "over" and name == "over") or (tip == "under" and name == "under"):
-                    odds = fractional_to_decimal(choice.get("fractionalValue", ""))
+                    raw = choice.get("currentValue") or choice.get("fractionalValue", "")
+                    odds = fractional_to_decimal(str(raw)) if raw else None
                     if odds:
                         return odds
     return None

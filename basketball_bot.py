@@ -217,10 +217,12 @@ def sofa_get(url: str) -> dict:
     try:
         time.sleep(API_DELAY_SEC)
         r = requests.get(url, headers=SOFASCORE_HEADERS, timeout=15)
-        r.raise_for_status()
+        if r.status_code != 200:
+            logger.warning(f"SofaScore HTTP {r.status_code} ({url})")
+            return {}
         return r.json()
     except Exception as e:
-        logger.debug(f"SofaScore hiba ({url}): {e}")
+        logger.warning(f"SofaScore hiba ({url}): {e}")
         return {}
 
 
@@ -324,12 +326,12 @@ def fetch_sofascore_totals_line(event_id: int) -> dict | None:
                 continue
             if line < 50:
                 continue
-            over_odds  = _parse_sofa_odds(ov.get("fractionalValue"))
-            under_odds = _parse_sofa_odds(un.get("fractionalValue")) if un else None
+            over_odds  = _parse_sofa_odds(ov.get("currentValue") or ov.get("fractionalValue"))
+            under_odds = _parse_sofa_odds(un.get("currentValue") or un.get("fractionalValue")) if un else None
             logger.info(f"SofaScore vonal: {line} | over={over_odds}, under={under_odds} (event={event_id})")
             return {"line": line, "over": over_odds, "under": under_odds}
     except Exception as e:
-        logger.debug(f"SofaScore odds hiba (event={event_id}): {e}")
+        logger.warning(f"SofaScore odds hiba (event={event_id}): {e}")
     return None
 
 
