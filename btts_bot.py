@@ -185,8 +185,9 @@ def sofa_get(url: str) -> dict:
         r = requests.get(url, headers=SOFA_HEADERS, timeout=10)
         if r.status_code == 200:
             return r.json()
+        logger.warning(f"SofaScore {r.status_code}: {url}")
     except Exception as e:
-        logger.debug(f"sofa_get hiba: {url} → {e}")
+        logger.warning(f"sofa_get hiba: {url} → {e}")
     return {}
 
 
@@ -258,8 +259,8 @@ def fetch_btts_odds_both(event_id: int) -> dict:
         )
         if not yes_ch and not no_ch and len(choices) == 2:
             yes_ch, no_ch = choices[0], choices[1]
-        yes_odds = _parse_odds(yes_ch.get("fractionalValue")) if yes_ch else None
-        no_odds  = _parse_odds(no_ch.get("fractionalValue"))  if no_ch  else None
+        yes_odds = _parse_odds(yes_ch.get("currentValue") or yes_ch.get("fractionalValue")) if yes_ch else None
+        no_odds  = _parse_odds(no_ch.get("currentValue") or no_ch.get("fractionalValue"))  if no_ch  else None
         if yes_odds or no_odds:
             return {"yes": yes_odds, "no": no_odds}
     return {"yes": None, "no": None}
@@ -374,13 +375,18 @@ def _collect_tips_sync(sent_ids: set) -> list:
         tip = calculate_btts(home_stats, away_stats, both_odds["yes"], both_odds["no"])
 
         if not tip:
-            logger.info(
-                f"Kizárva: {home_team.get('name')} vs {away_team.get('name')} "
-                f"(hazai BTTS={home_stats.get('btts_rate', 'N/A'):.0%} "
-                f"vendég={away_stats.get('btts_rate', 'N/A'):.0%} odds={odds})"
-                if home_stats.get("btts_rate") is not None and away_stats.get("btts_rate") is not None
-                else f"Kizárva: {home_team.get('name')} vs {away_team.get('name')} (kevés adat)"
-            )
+            home_r = home_stats.get("btts_rate")
+            away_r = away_stats.get("btts_rate")
+            tip_odds = both_odds.get("yes") or both_odds.get("no")
+            if home_r is not None and away_r is not None:
+                logger.info(
+                    f"Kizárva: {home_team.get('name')} vs {away_team.get('name')} "
+                    f"(hazai={home_r:.0%} vendég={away_r:.0%} odds={tip_odds})"
+                )
+            else:
+                logger.info(
+                    f"Kizárva: {home_team.get('name')} vs {away_team.get('name')} (kevés adat)"
+                )
             time.sleep(0.3)
             continue
 
