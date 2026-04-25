@@ -29,9 +29,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-CORNERS_BOT_TOKEN = os.environ["CORNERS_BOT_TOKEN"]
-CORNERS_CHAT_ID = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID", "")
-DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
+# ═══════════════════════════════════════════════════════════════════
+#  KONFIGURÁCIÓ – Töltsd ki PythonAnywhere-en (vagy .env fájlban)!
+# ═══════════════════════════════════════════════════════════════════
+_BOT_TOKEN    = ""   # Telegram bot token (BotFather-től)
+_CHAT_ID      = ""   # Telegram chat/csoport ID (pl. -1001234567890)
+_DATABASE_URL = ""   # Supabase PostgreSQL URL (postgresql://user:pass@host:5432/db)
+# ═══════════════════════════════════════════════════════════════════
+
+CORNERS_BOT_TOKEN = os.environ.get("CORNERS_BOT_TOKEN") or _BOT_TOKEN
+CORNERS_CHAT_ID   = os.environ.get("CORNERS_CHAT_ID") or os.environ.get("TELEGRAM_CHAT_ID") or _CHAT_ID
+DATABASE_URL      = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or _DATABASE_URL
 
 # Csoportok ahol a tippek és eredmények megjelennek
 GROUP_CHAT_IDS = [-1003715006026, -1003835559510]

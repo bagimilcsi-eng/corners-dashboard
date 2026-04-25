@@ -31,18 +31,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BASKETBALL_BOT_TOKEN = os.environ["BASKETBALL_BOT_TOKEN"]
-BASKETBALL_CHAT_ID   = os.environ["BASKETBALL_CHAT_ID"]
-DATABASE_URL         = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
+# ═══════════════════════════════════════════════════════════════════
+#  KONFIGURÁCIÓ – Töltsd ki PythonAnywhere-en (vagy .env fájlban)!
+# ═══════════════════════════════════════════════════════════════════
+_BOT_TOKEN    = ""   # Telegram bot token (BotFather-től)
+_CHAT_ID      = ""   # Telegram chat/csoport ID (pl. -1001234567890)
+_DATABASE_URL = ""   # Supabase PostgreSQL URL (postgresql://user:pass@host:5432/db)
+# ═══════════════════════════════════════════════════════════════════
+
+BASKETBALL_BOT_TOKEN = os.environ.get("BASKETBALL_BOT_TOKEN") or _BOT_TOKEN
+BASKETBALL_CHAT_ID   = os.environ.get("BASKETBALL_CHAT_ID")   or _CHAT_ID
+DATABASE_URL         = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or _DATABASE_URL
 
 EXTRA_CHAT_IDS = [-1003985563292]
 
-import os as _os
-SOFASCORE_BASE = (
-    "https://www.sofascore.com/api/v1"
-    if _os.environ.get("REPL_ID")
-    else "https://814dfd73-d8dd-4560-ab7a-2dea4ca2da33-00-3j0ryo8vfet2i.janeway.replit.dev/api/sofa"
-)
+SOFASCORE_BASE = os.environ.get("SOFASCORE_BASE", "https://www.sofascore.com/api/v1")
 SOFASCORE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Referer": "https://www.sofascore.com/basketball/livescore",

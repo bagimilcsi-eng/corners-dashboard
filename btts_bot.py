@@ -46,11 +46,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger("btts_bot")
 
-# ─── Konfiguráció ─────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+#  KONFIGURÁCIÓ – Töltsd ki PythonAnywhere-en (vagy .env fájlban)!
+# ═══════════════════════════════════════════════════════════════════
+_BOT_TOKEN    = ""   # Telegram bot token (BotFather-től)
+_CHAT_ID      = ""   # Telegram chat/csoport ID (pl. -1001234567890)
+_DATABASE_URL = ""   # Supabase PostgreSQL URL (postgresql://user:pass@host:5432/db)
+# ═══════════════════════════════════════════════════════════════════
 
-BOT_TOKEN    = os.environ["BTTS_BOT_TOKEN"]
-ADMIN_CHAT   = os.environ.get("COUPON_CHAT_ID", "")
-DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
+BOT_TOKEN    = os.environ.get("BTTS_BOT_TOKEN")    or _BOT_TOKEN
+ADMIN_CHAT   = os.environ.get("COUPON_CHAT_ID")    or _CHAT_ID
+DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or _DATABASE_URL
 HU_TZ        = ZoneInfo("Europe/Budapest")
 
 SOFASCORE_BASE = "https://www.sofascore.com/api/v1"

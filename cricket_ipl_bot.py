@@ -34,14 +34,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN    = os.environ["CRICKET_BOT_TOKEN"]
-DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
+# ═══════════════════════════════════════════════════════════════════
+#  KONFIGURÁCIÓ – Töltsd ki PythonAnywhere-en (vagy .env fájlban)!
+# ═══════════════════════════════════════════════════════════════════
+_BOT_TOKEN    = ""   # Telegram bot token (BotFather-től)
+_CHAT_ID      = ""   # Telegram chat/csoport ID (pl. -1001234567890)
+_DATABASE_URL = ""   # Supabase PostgreSQL URL (postgresql://user:pass@host:5432/db)
+# ═══════════════════════════════════════════════════════════════════
 
-CHAT_IDS = [
-    int(x.strip())
-    for x in os.environ.get("CRICKET_CHAT_ID", "").split(",")
-    if x.strip()
-]
+BOT_TOKEN    = os.environ.get("CRICKET_BOT_TOKEN") or _BOT_TOKEN
+DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or _DATABASE_URL
+
+_chat_env = os.environ.get("CRICKET_CHAT_ID", "") or _CHAT_ID
+CHAT_IDS = [int(x.strip()) for x in _chat_env.split(",") if x.strip()]
 
 SOFASCORE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",

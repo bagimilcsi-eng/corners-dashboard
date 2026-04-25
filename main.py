@@ -21,6 +21,12 @@ except ImportError:
             def __new__(cls, key):
                 return pytz.timezone(key)
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 if os.environ.get("TT_BOT_DISABLED", "").lower() in ("1", "true", "yes"):
     print("TT_BOT_DISABLED=true — bot nem indul el ezen a környezeten.")
     sys.exit(0)
@@ -35,10 +41,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-PROD_API_URL = os.environ.get("PROD_API_URL", "").rstrip("/")
-REPLIT_DB_URL = os.environ.get("REPLIT_DB_URL", "")
+# ═══════════════════════════════════════════════════════════════════
+#  KONFIGURÁCIÓ – Töltsd ki PythonAnywhere-en (vagy .env fájlban)!
+# ═══════════════════════════════════════════════════════════════════
+_BOT_TOKEN    = ""   # Telegram bot token (BotFather-től)
+_CHAT_ID      = ""   # Telegram chat/csoport ID (pl. -1001234567890)
+_DATABASE_URL = ""   # Supabase PostgreSQL URL (postgresql://user:pass@host:5432/db)
+# ═══════════════════════════════════════════════════════════════════
+
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or _BOT_TOKEN
+TELEGRAM_CHAT_ID   = os.environ.get("TELEGRAM_CHAT_ID")   or _CHAT_ID
+DATABASE_URL       = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or _DATABASE_URL
+PROD_API_URL       = os.environ.get("PROD_API_URL", "").rstrip("/")
+REPLIT_DB_URL      = os.environ.get("REPLIT_DB_URL", "")
 
 # Összes chat ID ahova az automatikus tippek mennek
 TELEGRAM_CHAT_IDS = [6617439213, -1003802326194, -1003835559510]
@@ -602,7 +617,7 @@ LEAGUE_FILTERS: dict[str, dict] = {
 
 
 def get_db_conn():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    return psycopg2.connect(DATABASE_URL)
 
 
 def load_tips() -> list:
@@ -1821,21 +1836,6 @@ def main():
         logger.info("Eredmény értesítő bekapcsolva (600s).")
     else:
         logger.warning("JobQueue nem elérhető – automatikus figyelő kikapcsolva.")
-
-    # NBA Rest-Advantage Bot indítása párhuzamosan (külön token/chat)
-    _rest_bot_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nba_rest_bot.py")
-    _rest_proc = None
-    if os.path.exists(_rest_bot_file):
-        try:
-            _rest_proc = subprocess.Popen([sys.executable, _rest_bot_file])
-            logger.info(f"🏀 NBA Rest Bot elindítva (PID: {_rest_proc.pid})")
-        except Exception as _e:
-            logger.error(f"NBA Rest Bot indítási hiba: {_e}")
-
-    def _cleanup_rest():
-        if _rest_proc and _rest_proc.poll() is None:
-            _rest_proc.terminate()
-    atexit.register(_cleanup_rest)
 
     logger.info("Bot fut. Asztalitenisz: SofaScore + 24live H2H (Setka Cup + Czech Liga | H2H: SofaScore→24live fallback | min. odds 1.55)")
     app.run_polling(allowed_updates=Update.ALL_TYPES)

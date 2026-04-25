@@ -13,8 +13,6 @@ import os
 import sys
 import asyncio
 import time
-import subprocess
-import atexit
 import logging
 import requests
 import psycopg2
@@ -48,11 +46,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ─── Konfiguráció ─────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════
+#  KONFIGURÁCIÓ – Töltsd ki PythonAnywhere-en (vagy .env fájlban)!
+# ═══════════════════════════════════════════════════════════════════
+_BOT_TOKEN    = ""   # Telegram bot token (BotFather-től)
+_CHAT_ID      = ""   # Telegram chat/csoport ID (pl. -1001234567890)
+_DATABASE_URL = ""   # Supabase PostgreSQL URL (postgresql://user:pass@host:5432/db)
+# ═══════════════════════════════════════════════════════════════════
 
-BOT_TOKEN    = os.environ["COUPON_BOT_TOKEN"]
-ADMIN_CHAT   = os.environ.get("COUPON_CHAT_ID", "")
-DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
+BOT_TOKEN    = os.environ.get("COUPON_BOT_TOKEN") or _BOT_TOKEN
+ADMIN_CHAT   = os.environ.get("COUPON_CHAT_ID")   or _CHAT_ID
+DATABASE_URL = os.environ.get("SUPABASE_DATABASE_URL") or os.environ.get("DATABASE_URL") or _DATABASE_URL
 HU_TZ        = ZoneInfo("Europe/Budapest")
 
 SOFASCORE_BASE = os.environ.get("SOFASCORE_BASE", "https://www.sofascore.com/api/v1")
@@ -716,21 +720,6 @@ def main():
             await send_admin(application.bot, "ℹ️ Startup: nincs megfelelő tipp a következő 12 órában.")
         else:
             await send_admin(application.bot, f"✅ Startup: *{len(tips)} tipp* elküldve.")
-
-    # BTTS Bot indítása párhuzamosan (külön saját scheduler, ugyanaz a csatorna)
-    _btts_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "btts_bot.py")
-    _btts_proc = None
-    if os.path.exists(_btts_file):
-        try:
-            _btts_proc = subprocess.Popen([sys.executable, _btts_file])
-            logger.info(f"⚽ BTTS Bot elindítva (PID: {_btts_proc.pid})")
-        except Exception as _e:
-            logger.error(f"BTTS Bot indítási hiba: {_e}")
-
-    def _cleanup_btts():
-        if _btts_proc and _btts_proc.poll() is None:
-            _btts_proc.terminate()
-    atexit.register(_cleanup_btts)
 
     app.post_init = post_init
     app.run_polling(allowed_updates=["message"])
