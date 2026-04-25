@@ -710,6 +710,98 @@ async def cmd_stat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
 
+async def cmd_lezar(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Kézi lezárás: /lezar                   → folyamatban lévő tippek listája
+                  /lezar <id> win [goals]  → nyertesnek jelöl
+                  /lezar <id> loss [goals] → vesztesnek jelöl
+                  /lezar <id> timeout      → timeout-nak jelöl
+    """
+    args = context.args or []
+
+    # Argumentum nélkül: nyitott tippek listája
+    if not args:
+        pending = load_pending_tips()
+        if not pending:
+            await update.message.reply_text("✅ Nincs lezáratlan tipp.")
+            return
+        lines = ["📋 *Lezáratlan tippek:*\n"]
+        for t in pending:
+            dt  = datetime.fromtimestamp(t["start_timestamp"], tz=HU_TZ).strftime("%m.%d. %H:%M")
+            lbl = "OVER 2.5" if t["tip"] == "over" else "UNDER 2.5"
+            lines.append(
+                f"🔑 `{t['fixture_id']}` — {t['home']} vs {t['away']}\n"
+                f"   {lbl} | {dt} | {t.get('league','?')}"
+            )
+        lines.append("\n_Használat: /lezar <id> <win|loss|timeout> [gólok]_")
+        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        return
+
+    # Legalább fixture_id és eredmény kell
+    if len(args) < 2:
+        await update.message.reply_text(
+            "ℹ️ Használat:\n`/lezar` — nyitott tippek\n`/lezar <id> <win|loss|timeout> [gólok]`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    try:
+        fixture_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Érvénytelen fixture_id (szám kell).")
+        return
+
+    result = args[1].lower()
+    if result not in ("win", "loss", "timeout"):
+        await update.message.reply_text("❌ Eredmény csak: `win`, `loss`, `timeout`", parse_mode=ParseMode.MARKDOWN)
+        return
+
+    goals = None
+    if len(args) >= 3:
+        try:
+            goals = int(args[2])
+        except ValueError:
+            await update.message.reply_text("❌ A gólok száma egész szám kell.")
+            return
+
+    # Ellenőrzés: létezik-e a tipp
+    try:
+        with get_conn() as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT * FROM football25_tips WHERE fixture_id=%s", (fixture_id,))
+                row = cur.fetchone()
+    except Exception as e:
+        await update.message.reply_text(f"❌ DB hiba: {e}")
+        return
+
+    if not row:
+        await update.message.reply_text(f"❌ Nem találom: fixture_id={fixture_id}")
+        return
+
+    row = dict(row)
+    if row.get("result") is not None:
+        await update.message.reply_text(
+            f"⚠️ Ez a tipp már lezárt: `{row['result']}`\nHa felülírnád, szólj.", parse_mode=ParseMode.MARKDOWN
+        )
+        return
+
+    update_result(fixture_id, result, goals)
+
+    icon = {"win": "✅", "loss": "❌", "timeout": "⏱"}.get(result, "❓")
+    lbl  = "OVER 2.5" if row["tip"] == "over" else "UNDER 2.5"
+    goals_txt = f" | {goals} gól" if goals is not None else ""
+    msg = (
+        f"{icon} *Manuálisan lezárva*\n\n"
+        f"⚽ {row['home']} vs {row['away']}\n"
+        f"🏆 {row.get('league','?')}\n"
+        f"🎯 Tippünk: *{lbl}*\n"
+        f"🏁 Eredmény: *{result.upper()}*{goals_txt}\n"
+        f"💰 Szorzó: @{row['odds']:.2f}"
+    )
+    await send_to_all_chats(context.bot, msg)
+    logger.info(f"Manuális lezárás: fixture_id={fixture_id} → {result} (goals={goals})")
+
+
 # ─── Főprogram ────────────────────────────────────────────────────────────────
 
 def main():
@@ -719,6 +811,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("tippek", cmd_tippek))
     app.add_handler(CommandHandler("stat",   cmd_stat))
+    app.add_handler(CommandHandler("lezar",  cmd_lezar))
 
     scheduler = AsyncIOScheduler()
     scheduler.add_job(scan_and_send, "interval", seconds=SCAN_INTERVAL, args=[app])
